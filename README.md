@@ -1,11 +1,11 @@
-# Infobox
+# Omni Infobox
 
 An Obsidian plugin that renders Wikipedia-style infoboxes from YAML frontmatter, including a floating panel pinned to the top-right of the reading pane.
 
 ## Features
 
 - Frontmatter-driven: no special syntax in note body required
-- Supports title, subtitle, image, caption, tags, and key-value fields
+- Supports title, subtitle, images, captions, tags, and key-value fields
 - Named section dividers within the field list
 - Supports internal wikilinks in text properties and fields
 - Resolves local vault images (wikilink or plain filename)
@@ -17,12 +17,12 @@ An Obsidian plugin that renders Wikipedia-style infoboxes from YAML frontmatter,
 ### Manual
 
 1. Download `main.js`, `styles.css`, and `manifest.json` from the [latest release](../../releases/latest)
-2. Copy them into `.obsidian/plugins/infobox/` inside your vault
+2. Copy them into `.obsidian/plugins/omni-infobox/` inside your vault
 3. Enable the plugin in **Settings → Community Plugins**
 
 ### Community Plugins
 
-Search for **Infobox** in the Obsidian community plugin browser.
+Search for **Omni Infobox** in the Obsidian community plugin browser.
 
 ## Usage
 
@@ -33,8 +33,13 @@ Add an `infobox:` block to your note's YAML frontmatter:
 infobox:
   title: Albert Einstein
   subtitle: Theoretical Physicist
-  image: einstein.jpg
-  caption: Photograph from [[1921]]
+  images:
+    - label: Portrait
+      image: einstein.jpg
+      caption: Photograph from [[1921]]
+    - label: Lecture
+      image: "[[einstein-lecture.jpg]]"
+      caption: Einstein giving a lecture
   tags: [science, physics]
   fields:
     - section: Personal
@@ -54,8 +59,9 @@ infobox:
 |---|---|---|
 | `title` | string | Bold heading at the top of the card |
 | `subtitle` | string | Italic line below the title |
-| `image` | string | Filename or URL. Supports `[[wikilinks]]` and `![[wikilinks]]` |
-| `caption` | string | Small italic text below the image |
+| `image` | string | A single filename or URL. Supports `[[wikilinks]]` and `![[wikilinks]]` |
+| `caption` | string | Small italic text below a single `image` |
+| `images` | list | Image gallery entries, each with `image` and optional `label` and `caption` |
 | `tags` | list/string | Optional tags to show in the infobox. Falls back to the note's frontmatter and inline tags |
 | `showTags` | boolean | Set to `false` to hide tags for a note |
 | `fields` | list | Array of single-key objects (see below) |
@@ -81,6 +87,18 @@ Images can be specified as:
 - A plain filename: `image: einstein.jpg` (resolved via vault)
 - A wikilink: `image: "[[einstein.jpg]]"` or `image: "![[einstein.jpg]]"`
 - A remote URL: `image: https://example.com/photo.jpg`
+
+For a gallery, use `images` instead of `image`. With more than one entry, the infobox shows image tabs:
+
+```yaml
+images:
+  - label: Portrait
+    image: "[[einstein.jpg]]"
+    caption: Photograph from 1921
+  - label: Lecture
+    image: "[[einstein-lecture.jpg]]"
+    caption: Einstein giving a lecture
+```
 
 ## Contributing
 
