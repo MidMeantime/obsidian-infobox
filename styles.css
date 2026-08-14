@@ -1,5 +1,5 @@
 /* ── Panel container ─────────────────────────────────────────── */
-/* Absolutely positioned within .view-content, pinned top-right  */
+/* Absolutely positioned within .view-content, pinned top-right. */
 .infobox-panel {
     position: absolute;
     top: 48px;
@@ -19,6 +19,14 @@
     color: #e8e8e8;
 }
 
+/* Readable line length centers the sizer, so position beside it instead. */
+.infobox-panel.infobox-panel-readable {
+    top: 0;
+    right: auto;
+    left: calc(100% + 24px);
+    max-height: calc(100vh - 96px);
+}
+
 /* Ensure the parent is a positioning context */
 .has-infobox {
     position: relative;
@@ -28,6 +36,13 @@
 .has-infobox .markdown-preview-sizer,
 .has-infobox .cm-sizer {
     padding-right: 300px;
+}
+
+/* The readable sizer is the panel host, so its text needs no extra gutter. */
+.has-infobox .markdown-preview-sizer.infobox-readable-host {
+    position: relative;
+    overflow: visible;
+    padding-right: 0;
 }
 
 /* Thin scrollbar for the panel */

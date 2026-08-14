@@ -41,6 +41,7 @@ class InfoboxPlugin extends Plugin {
         if (this._pending != null) cancelAnimationFrame(this._pending);
         document.querySelectorAll('.infobox-panel').forEach(e => e.remove());
         document.querySelectorAll('.has-infobox').forEach(e => e.classList.remove('has-infobox'));
+        document.querySelectorAll('.infobox-readable-host').forEach(e => e.classList.remove('infobox-readable-host'));
     }
 
     scheduleRefresh() {
@@ -200,6 +201,7 @@ class InfoboxPlugin extends Plugin {
         // Always clean up first
         ct.querySelectorAll('.infobox-panel').forEach(e => e.remove());
         ct.classList.remove('has-infobox');
+        ct.querySelectorAll('.infobox-readable-host').forEach(e => e.classList.remove('infobox-readable-host'));
 
         const file = view.file;
         if (!file) return;
@@ -377,7 +379,19 @@ class InfoboxPlugin extends Plugin {
             }
         }
 
-        ct.appendChild(panel);
+        const previewSizer = ct.querySelector('.markdown-preview-sizer');
+        const usesReadableLineLength = Boolean(
+            previewSizer?.closest('.is-readable-line-width')
+        );
+
+        if (usesReadableLineLength) {
+            previewSizer.classList.add('infobox-readable-host');
+            panel.classList.add('infobox-panel-readable');
+            previewSizer.appendChild(panel);
+        } else {
+            ct.appendChild(panel);
+        }
+
         ct.classList.add('has-infobox');
     }
 }
