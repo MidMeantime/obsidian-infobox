@@ -32,17 +32,11 @@
     position: relative;
 }
 
-/* Push text content left so it doesn't hide behind the panel */
-.has-infobox .markdown-preview-sizer,
-.has-infobox .cm-sizer {
-    padding-right: 300px;
-}
-
-/* The readable sizer is the panel host, so its text needs no extra gutter. */
-.has-infobox .markdown-preview-sizer.infobox-readable-host {
+/* Use the readable layout's outer gutter without changing the text width. */
+.has-infobox .markdown-preview-sizer.infobox-readable-host,
+.has-infobox .cm-sizer.infobox-readable-host {
     position: relative;
     overflow: visible;
-    padding-right: 0;
 }
 
 /* Thin scrollbar for the panel */

@@ -379,15 +379,21 @@ class InfoboxPlugin extends Plugin {
             }
         }
 
-        const previewSizer = ct.querySelector('.markdown-preview-sizer');
+        const contentSizer = ct.querySelector(
+            '.markdown-preview-sizer, .cm-sizer'
+        );
+        const readableContainer =
+            contentSizer?.closest('.is-readable-line-width') ||
+            ct.closest('.is-readable-line-width') ||
+            view.contentEl?.closest('.is-readable-line-width');
         const usesReadableLineLength = Boolean(
-            previewSizer?.closest('.is-readable-line-width')
+            contentSizer && readableContainer
         );
 
         if (usesReadableLineLength) {
-            previewSizer.classList.add('infobox-readable-host');
+            contentSizer.classList.add('infobox-readable-host');
             panel.classList.add('infobox-panel-readable');
-            previewSizer.appendChild(panel);
+            contentSizer.appendChild(panel);
         } else {
             ct.appendChild(panel);
         }
