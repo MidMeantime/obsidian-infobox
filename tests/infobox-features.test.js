@@ -200,8 +200,17 @@ function setupPlugin() {
         plugin.renderFieldValue(parent, '- Item 1\n* Item 2\n- Item 3', file);
         const valDiv = parent.children[0];
         const ul = valDiv.children.find(c => c.tag === 'ul' && c.cls === 'infobox-list');
-        assert(ul, 'Multiline string should render as ul.infobox-list');
+        assert(ul, 'Explicit bulleted multiline string should render as ul.infobox-list');
         assert.strictEqual(ul.children.length, 3);
+    }
+
+    // Plain newlines without bullets must NOT turn into a list
+    {
+        const parent = new TestElement('div');
+        plugin.renderFieldValue(parent, 'Line 1 of text\nLine 2 of text', file);
+        const valDiv = parent.children[0];
+        const ul = valDiv.children.find(c => c.tag === 'ul');
+        assert(!ul, 'Plain multiline string without bullets should NOT render as a list');
     }
 
     // Pipe separated
@@ -241,6 +250,33 @@ function setupPlugin() {
         const valDiv = parent.children[0];
         const ul = valDiv.children.find(c => c.tag === 'ul');
         assert(!ul, 'Wikilink with comma inside name should NOT be split');
+    }
+
+    // Bolded first word or label with commas must NOT turn into a list
+    {
+        const parent = new TestElement('div');
+        plugin.renderFieldValue(parent, '**Title**: Theoretical Physics, Quantum Mechanics', file);
+        const valDiv = parent.children[0];
+        const ul = valDiv.children.find(c => c.tag === 'ul');
+        assert(!ul, 'Bolded first word with commas must NOT turn into a list');
+    }
+
+    // Dates with commas must NOT turn into a list
+    {
+        const parent = new TestElement('div');
+        plugin.renderFieldValue(parent, 'March 14, 1879', file);
+        const valDiv = parent.children[0];
+        const ul = valDiv.children.find(c => c.tag === 'ul');
+        assert(!ul, 'Date with comma must NOT turn into a list');
+    }
+
+    // Italic lines without bullet spaces must NOT turn into a list
+    {
+        const parent = new TestElement('div');
+        plugin.renderFieldValue(parent, '*Italics line 1*\n*Italics line 2*', file);
+        const valDiv = parent.children[0];
+        const ul = valDiv.children.find(c => c.tag === 'ul');
+        assert(!ul, 'Italic lines without bullet spaces must NOT turn into a list');
     }
 }
 
@@ -524,14 +560,9 @@ function setupPlugin() {
     const { handleKeyDown } = {
         handleKeyDown(e) {
             const input = e.target;
-            if (!input || (input.tagName !== 'INPUT' && input.tagName !== 'TEXTAREA')) return;
-            if (input.type && input.type !== 'text' && input.tagName === 'INPUT') return;
-
             const key = e.key;
             const start = input.selectionStart;
             const end = input.selectionEnd;
-            if (start === null || end === null) return;
-
             const val = input.value;
             const hasSelection = start !== end;
             const selectedText = hasSelection ? val.slice(start, end) : '';
@@ -542,18 +573,20 @@ function setupPlugin() {
                 '{': '}',
                 '"': '"',
                 "'": "'",
-                '`': '`'
+                '*': '*',
+                '_': '_',
+                '`': '`',
+                '~': '~',
+                '=': '='
             };
 
-            const closingKeys = new Set([']', ')', '}', '"', "'", '`']);
+            const closingKeys = new Set(Object.values(pairs));
 
             // 1. Skip over closing character
-            if (!hasSelection && closingKeys.has(key)) {
-                if (val[start] === key) {
-                    e.preventDefault();
-                    input.setSelectionRange(start + 1, start + 1);
-                    return;
-                }
+            if (!hasSelection && closingKeys.has(key) && val[start] === key) {
+                e.preventDefault();
+                input.setSelectionRange(start + 1, start + 1);
+                return;
             }
 
             // 2. Wrap selection
@@ -561,21 +594,6 @@ function setupPlugin() {
                 e.preventDefault();
                 const openChar = key;
                 const closeChar = pairs[key];
-
-                if (openChar === '[' && start > 0 && end < val.length && val[start - 1] === '[' && val[end] === ']') {
-                    const isAlreadyDouble = start >= 2 && end + 1 < val.length && val[start - 2] === '[' && val[end + 1] === ']';
-                    if (!isAlreadyDouble) {
-                        insertTextWithUndo(input, `[[${selectedText}]]`, start + 1, end + 1, start - 1, end + 1);
-                    }
-                    return;
-                } else if (openChar === '"' && start > 0 && end < val.length && val[start - 1] === '"' && val[end] === '"') {
-                    return;
-                } else if (openChar === "'" && start > 0 && end < val.length && val[start - 1] === "'" && val[end] === "'") {
-                    return;
-                } else if (openChar === '`' && start > 0 && end < val.length && val[start - 1] === '`' && val[end] === '`') {
-                    return;
-                }
-
                 insertTextWithUndo(input, `${openChar}${selectedText}${closeChar}`, start + 1, end + 1, start, end);
                 return;
             }
@@ -585,38 +603,17 @@ function setupPlugin() {
                 e.preventDefault();
                 const openChar = key;
                 const closeChar = pairs[key];
-
-                if (openChar === '[' && start > 0 && val[start - 1] === '[' && val[start] === ']') {
-                    insertTextWithUndo(input, '[[]]', start + 1, start + 1, start - 1, start + 1);
-                    return;
-                }
-
                 insertTextWithUndo(input, `${openChar}${closeChar}`, start + 1, start + 1, start, start);
                 return;
             }
 
             // 4. Backspace pair deletion
-            if (key === 'Backspace' && !hasSelection && start > 0) {
+            if (key === 'Backspace' && !hasSelection && start > 0 && start <= val.length) {
                 const prevChar = val[start - 1];
                 const nextChar = val[start];
-
-                const isMatchingPair = (
-                    (prevChar === '[' && nextChar === ']') ||
-                    (prevChar === '(' && nextChar === ')') ||
-                    (prevChar === '{' && nextChar === '}') ||
-                    (prevChar === '"' && nextChar === '"') ||
-                    (prevChar === "'" && nextChar === "'") ||
-                    (prevChar === '`' && nextChar === '`')
-                );
-
-                if (isMatchingPair) {
+                if (pairs[prevChar] === nextChar) {
                     e.preventDefault();
-                    const isDoubleWiki = (start >= 2 && val[start - 2] === '[' && val[start + 1] === ']');
-                    if (isDoubleWiki) {
-                        deleteWithUndo(input, start - 2, start + 2);
-                    } else {
-                        deleteWithUndo(input, start - 1, start + 1);
-                    }
+                    deleteWithUndo(input, start - 1, start + 1);
                     return;
                 }
             }
@@ -631,32 +628,26 @@ function setupPlugin() {
     assert.strictEqual(input1.value, '[]');
     assert.strictEqual(input1.selectionStart, 1);
 
-    // 10b. Type second bracket inside [|] to form [[|]]
-    handleKeyDown({ target: input1, key: '[', preventDefault: () => {} });
-    assert.strictEqual(input1.value, '[[]]');
+    // 10b. Skip over closing bracket
+    handleKeyDown({ target: input1, key: ']', preventDefault: () => {} });
     assert.strictEqual(input1.selectionStart, 2);
 
-    // 10c. Skip over closing bracket
-    handleKeyDown({ target: input1, key: ']', preventDefault: () => {} });
-    assert.strictEqual(input1.selectionStart, 3);
-
-    // 10d. Backspace inside [[|]]
-    const input2 = new MockInputElement('[[]]');
-    input2.setSelectionRange(2, 2);
+    // 10c. Backspace inside [|]
+    const input2 = new MockInputElement('[]');
+    input2.setSelectionRange(1, 1);
     handleKeyDown({ target: input2, key: 'Backspace', preventDefault: () => {} });
     assert.strictEqual(input2.value, '');
     assert.strictEqual(input2.selectionStart, 0);
 
-    // 10e. Selection wrapping with quotes
+    // 10d. Selection wrapping with quotes
     const input3 = new MockInputElement('Albert Einstein');
     input3.setSelectionRange(0, 15);
     handleKeyDown({ target: input3, key: '"', preventDefault: () => {} });
     assert.strictEqual(input3.value, '"Albert Einstein"');
-    // Press quote again - should not add trailing duplicate
-    handleKeyDown({ target: input3, key: '"', preventDefault: () => {} });
-    assert.strictEqual(input3.value, '"Albert Einstein"');
+    assert.strictEqual(input3.selectionStart, 1);
+    assert.strictEqual(input3.selectionEnd, 16);
 
-    // 10f. Selection wrapping with single bracket then double wikilink
+    // 10e. Selection wrapping with single bracket then double wikilink
     const input4 = new MockInputElement('Mondstadt');
     input4.setSelectionRange(0, 9);
     handleKeyDown({ target: input4, key: '[', preventDefault: () => {} });
@@ -670,11 +661,44 @@ function setupPlugin() {
     assert.strictEqual(input4.selectionStart, 2);
     assert.strictEqual(input4.selectionEnd, 11);
 
-    // Press '[' a third time - should not add trailing duplicate
-    handleKeyDown({ target: input4, key: '[', preventDefault: () => {} });
-    assert.strictEqual(input4.value, '[[Mondstadt]]');
+    // 10f. Bold & italics wrapping on selected first/only word
+    const inputBold = new MockInputElement('Physics');
+    inputBold.setSelectionRange(0, 7);
+    // Wrap with * -> *Physics* (italics)
+    handleKeyDown({ target: inputBold, key: '*', preventDefault: () => {} });
+    assert.strictEqual(inputBold.value, '*Physics*');
+    assert.strictEqual(inputBold.selectionStart, 1);
+    assert.strictEqual(inputBold.selectionEnd, 8);
 
-    // 10g. execCommand is called when available in browser/Electron
+    // Press * again -> **Physics** (bold)
+    handleKeyDown({ target: inputBold, key: '*', preventDefault: () => {} });
+    assert.strictEqual(inputBold.value, '**Physics**');
+    assert.strictEqual(inputBold.selectionStart, 2);
+    assert.strictEqual(inputBold.selectionEnd, 9);
+
+    // Press * a 3rd time -> ***Physics*** (bold + italics)
+    handleKeyDown({ target: inputBold, key: '*', preventDefault: () => {} });
+    assert.strictEqual(inputBold.value, '***Physics***');
+    assert.strictEqual(inputBold.selectionStart, 3);
+    assert.strictEqual(inputBold.selectionEnd, 10);
+
+    // 10g. Auto-insert asterisks without selection and skip over
+    const inputAsterisk = new MockInputElement('');
+    handleKeyDown({ target: inputAsterisk, key: '*', preventDefault: () => {} });
+    assert.strictEqual(inputAsterisk.value, '**');
+    assert.strictEqual(inputAsterisk.selectionStart, 1);
+
+    // Skip over closing *
+    handleKeyDown({ target: inputAsterisk, key: '*', preventDefault: () => {} });
+    assert.strictEqual(inputAsterisk.selectionStart, 2);
+
+    // Backspace on *|*
+    const inputDelAsterisk = new MockInputElement('**');
+    inputDelAsterisk.setSelectionRange(1, 1);
+    handleKeyDown({ target: inputDelAsterisk, key: 'Backspace', preventDefault: () => {} });
+    assert.strictEqual(inputDelAsterisk.value, '');
+
+    // 10h. execCommand is called when available in browser/Electron
     let execCommandCalled = null;
     global.document = {
         execCommand(cmd, showUI, text) {
@@ -763,24 +787,24 @@ function setupPlugin() {
                 return;
             }
 
-            // Case 2: HTML with anchor tag
-            if (html && !hasSelection && text && !text.includes('[[') && !text.includes('](')) {
-                const match = html.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/i);
-                if (match) {
-                    const href = match[1];
-                    const linkText = match[2].replace(/<[^>]+>/g, '').trim() || text.trim();
-                    if (href && linkText) {
-                        e.preventDefault();
-                        let mdLink;
-                        if (/^https?:\/\//i.test(href)) {
-                            mdLink = `[${linkText}](${href})`;
-                        } else {
-                            const cleanHref = href.replace(/^app:\/\/obsidian\.md\//, '').replace(/\.md$/, '');
-                            mdLink = (cleanHref === linkText) ? `[[${cleanHref}]]` : `[[${cleanHref}|${linkText}]]`;
-                        }
-                        insertTextWithUndo(input, mdLink, start + mdLink.length, start + mdLink.length, start, end);
-                        return;
+            // Case 2: HTML with anchor tags -> convert all links to markdown
+            if (html && !text.includes('[[') && !text.includes('](') && /<a\s+[^>]*href=/i.test(html)) {
+                e.preventDefault();
+                let converted = text;
+
+                // Fallback / standard regex replacing all anchor tags in HTML
+                converted = html.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, (match, href, innerHtml) => {
+                    const linkText = innerHtml.replace(/<[^>]+>/g, '').trim() || href;
+                    if (/^https?:\/\//i.test(href)) {
+                        return `[${linkText}](${href})`;
                     }
+                    const cleanHref = decodeURI(href.replace(/^app:\/\/obsidian\.md\//, '').replace(/\.md$/, ''));
+                    return (cleanHref === linkText) ? `[[${cleanHref}]]` : `[[${cleanHref}|${linkText}]]`;
+                }).replace(/<[^>]+>/g, '').trim();
+
+                if (converted) {
+                    insertTextWithUndo(input, converted, start + converted.length, start + converted.length, start, end);
+                    return;
                 }
             }
         }
@@ -803,7 +827,7 @@ function setupPlugin() {
     assert(prevented);
     assert.strictEqual(input1.value, 'Read more at [Wikipedia](https://en.wikipedia.org) here');
 
-    // 11b. Paste HTML anchor tag
+    // 11b. Paste HTML with single anchor tag
     const input2 = new MockInputElement('See: ');
     input2.setSelectionRange(5, 5);
     handlePaste({
@@ -818,6 +842,37 @@ function setupPlugin() {
         preventDefault() {}
     });
     assert.strictEqual(input2.value, 'See: [Official Docs](https://obsidian.md)');
+
+    // 11c. Paste HTML with MULTIPLE anchor tags
+    const input3 = new MockInputElement('');
+    handlePaste({
+        target: input3,
+        clipboardData: {
+            getData(type) {
+                if (type === 'text/plain') return 'Influenced by Maxwell and Newton.';
+                if (type === 'text/html') return '<p>Influenced by <a href="https://site.com/maxwell">Maxwell</a> and <a href="https://site.com/newton">Newton</a>.</p>';
+                return '';
+            }
+        },
+        preventDefault() {}
+    });
+    assert.strictEqual(input3.value, 'Influenced by [Maxwell](https://site.com/maxwell) and [Newton](https://site.com/newton).');
+
+    // 11d. Paste HTML with Obsidian internal note links
+    const input4 = new MockInputElement('Related: ');
+    input4.setSelectionRange(9, 9);
+    handlePaste({
+        target: input4,
+        clipboardData: {
+            getData(type) {
+                if (type === 'text/plain') return 'General relativity, Photoelectric effect';
+                if (type === 'text/html') return '<a href="app://obsidian.md/General%20relativity.md">General relativity</a>, <a href="app://obsidian.md/Photoelectric%20effect.md">Photoelectric effect</a>';
+                return '';
+            }
+        },
+        preventDefault() {}
+    });
+    assert.strictEqual(input4.value, 'Related: [[General relativity]], [[Photoelectric effect]]');
 }
 
 console.log('infobox-features tests passed');

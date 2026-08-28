@@ -33,30 +33,132 @@ const Keymap = obsidian.Keymap;
  *   ---
  */
 
-function splitOutsideWikilinks(str, delimiter) {
+function splitOutsideLinks(str, delimiter) {
+    if (typeof str !== 'string') return [String(str ?? '')];
     const tokens = [];
     let current = '';
-    let inLink = 0;
+    let inWikilink = 0;
+    let inBracket = 0;
+    let inParen = 0;
+    let inQuote = null;
+
     for (let i = 0; i < str.length; i++) {
-        if (str[i] === '[' && str[i + 1] === '[') {
-            inLink++;
+        const ch = str[i];
+        const next = str[i + 1];
+
+        // Track quotes (only outside links)
+        if ((ch === '"' || ch === "'") && inWikilink === 0 && inBracket === 0 && inParen === 0) {
+            if (inQuote === ch) {
+                inQuote = null;
+            } else if (inQuote === null) {
+                inQuote = ch;
+            }
+            current += ch;
+            continue;
+        }
+
+        if (inQuote !== null) {
+            current += ch;
+            continue;
+        }
+
+        // Track wikilinks [[ ... ]]
+        if (ch === '[' && next === '[') {
+            inWikilink++;
             current += '[[';
             i++;
-        } else if (str[i] === ']' && str[i + 1] === ']') {
-            if (inLink > 0) inLink--;
+            continue;
+        }
+        if (ch === ']' && next === ']') {
+            if (inWikilink > 0) inWikilink--;
             current += ']]';
             i++;
-        } else if (str[i] === delimiter && inLink === 0) {
-            tokens.push(current.trim());
+            continue;
+        }
+
+        // Track markdown brackets [ ... ] and parens ( ... )
+        if (inWikilink === 0) {
+            if (ch === '[') {
+                inBracket++;
+            } else if (ch === ']') {
+                if (inBracket > 0) inBracket--;
+            } else if (ch === '(' && inBracket === 0) {
+                inParen++;
+            } else if (ch === ')') {
+                if (inParen > 0) inParen--;
+            }
+        }
+
+        // Delimiter matching (only split when outside all links, brackets, and quotes)
+        if (ch === delimiter && inWikilink === 0 && inBracket === 0 && inParen === 0 && inQuote === null) {
+            if (current.trim().length > 0) {
+                tokens.push(current.trim());
+            }
             current = '';
         } else {
-            current += str[i];
+            current += ch;
         }
     }
+
     if (current.trim().length > 0) {
         tokens.push(current.trim());
     }
     return tokens.filter(Boolean);
+}
+
+// Backward compatibility alias for tests
+const splitOutsideWikilinks = splitOutsideLinks;
+
+function extractListItems(value, normalizeFn) {
+    if (value == null) return [];
+    if (Array.isArray(value)) {
+        return value.map(item => typeof normalizeFn === 'function' ? normalizeFn(item) : String(item)).filter(Boolean);
+    }
+    if (typeof value !== 'string') {
+        return [String(value)];
+    }
+
+    const str = value.trim();
+    if (!str) return [];
+
+    // 1. Multiline strings: only convert to a list if lines start with bullet markers (- , * , + , • , 1. )
+    if (str.includes('\n')) {
+        const rawLines = str.split('\n').map(s => s.trim()).filter(Boolean);
+        // Distinguish true list bullets ('* ') from bold/italics ('**word**' or '*word*')
+        const isBulletLine = s => /^[-+•]\s+|^\*\s+|^\d+[.)]\s+/.test(s);
+        const hasBulletPrefix = rawLines.length > 1 && rawLines.every(isBulletLine);
+        if (hasBulletPrefix) {
+            return rawLines.map(s => s.replace(/^[-+•]\s+|^\*\s+|^\d+[.)]\s+/, '').trim()).filter(Boolean);
+        }
+        // If multiline without explicit list bullets, keep as single multiline string
+        return [str];
+    }
+
+    // 2. Pipe delimiter outside links (e.g. "[[Link 1]] | [[Link 2]]" or "Knight | Mage | Archer")
+    const pipeParts = splitOutsideLinks(str, '|');
+    if (pipeParts.length > 1) {
+        return pipeParts;
+    }
+
+    // 3. Comma delimiter outside links: ONLY for link lists or simple token lists, NOT sentences, dates, or bolded labels
+    const commaParts = splitOutsideLinks(str, ',');
+    if (commaParts.length > 1) {
+        const isLink = s => /^!?\[\[.*\]\]$/.test(s.trim()) || /^\[.*\]\(.*\)$/.test(s.trim());
+        const allLinks = commaParts.every(isLink);
+        const isDate = /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s*\d{4}\b/i.test(str) || /\b\d{1,2},\s*\d{4}\b/.test(str);
+        const isFormattedSentence = str.includes(':') || /^\*\*|^\*|^_/.test(str);
+        if (allLinks || (!isDate && !isFormattedSentence)) {
+            return commaParts;
+        }
+    }
+
+    // 4. Semicolon delimiter outside links (e.g. "[[Link 1]]; [[Link 2]]")
+    const semiParts = splitOutsideLinks(str, ';');
+    if (semiParts.length > 1) {
+        return semiParts;
+    }
+
+    return [str];
 }
 
 function insertTextWithUndo(input, text, selectionAfterStart, selectionAfterEnd, replaceStart, replaceEnd) {
@@ -238,42 +340,27 @@ class InfoboxEditModal extends Modal {
             '{': '}',
             '"': '"',
             "'": "'",
-            '`': '`'
+            '*': '*',
+            '_': '_',
+            '`': '`',
+            '~': '~',
+            '=': '='
         };
 
-        const closingKeys = new Set([']', ')', '}', '"', "'", '`']);
+        const closingKeys = new Set(Object.values(pairs));
 
         // 1. Skip over closing character if typed immediately before it without selection
-        if (!hasSelection && closingKeys.has(key)) {
-            if (val[start] === key) {
-                e.preventDefault();
-                input.setSelectionRange(start + 1, start + 1);
-                return;
-            }
+        if (!hasSelection && closingKeys.has(key) && val[start] === key) {
+            e.preventDefault();
+            input.setSelectionRange(start + 1, start + 1);
+            return;
         }
 
-        // 2. Selection wrapping
+        // 2. Selection wrapping: cleanly wrap selected text in matching pair
         if (hasSelection && pairs[key]) {
             e.preventDefault();
             const openChar = key;
             const closeChar = pairs[key];
-
-            // Check if already wrapped in single brackets [selection] and typing [ again -> wrap to [[selection]]
-            if (openChar === '[' && start > 0 && end < val.length && val[start - 1] === '[' && val[end] === ']') {
-                const isAlreadyDouble = start >= 2 && end + 1 < val.length && val[start - 2] === '[' && val[end + 1] === ']';
-                if (!isAlreadyDouble) {
-                    insertTextWithUndo(input, `[[${selectedText}]]`, start + 1, end + 1, start - 1, end + 1);
-                }
-                return;
-            } else if (openChar === '"' && start > 0 && end < val.length && val[start - 1] === '"' && val[end] === '"') {
-                return;
-            } else if (openChar === "'" && start > 0 && end < val.length && val[start - 1] === "'" && val[end] === "'") {
-                return;
-            } else if (openChar === '`' && start > 0 && end < val.length && val[start - 1] === '`' && val[end] === '`') {
-                return;
-            }
-
-            // Normal wrap: [selectedText], (selectedText), etc.
             insertTextWithUndo(input, `${openChar}${selectedText}${closeChar}`, start + 1, end + 1, start, end);
             return;
         }
@@ -283,39 +370,17 @@ class InfoboxEditModal extends Modal {
             e.preventDefault();
             const openChar = key;
             const closeChar = pairs[key];
-
-            // If user types second '[' when cursor is inside [|]:
-            if (openChar === '[' && start > 0 && val[start - 1] === '[' && val[start] === ']') {
-                insertTextWithUndo(input, '[[]]', start + 1, start + 1, start - 1, start + 1);
-                return;
-            }
-
             insertTextWithUndo(input, `${openChar}${closeChar}`, start + 1, start + 1, start, start);
             return;
         }
 
-        // 4. Backspace pair deletion
-        if (key === 'Backspace' && !hasSelection && start > 0) {
+        // 4. Backspace pair deletion: if cursor is between matching pair, delete both
+        if (key === 'Backspace' && !hasSelection && start > 0 && start <= val.length) {
             const prevChar = val[start - 1];
             const nextChar = val[start];
-
-            const isMatchingPair = (
-                (prevChar === '[' && nextChar === ']') ||
-                (prevChar === '(' && nextChar === ')') ||
-                (prevChar === '{' && nextChar === '}') ||
-                (prevChar === '"' && nextChar === '"') ||
-                (prevChar === "'" && nextChar === "'") ||
-                (prevChar === '`' && nextChar === '`')
-            );
-
-            if (isMatchingPair) {
+            if (pairs[prevChar] === nextChar) {
                 e.preventDefault();
-                const isDoubleWiki = (start >= 2 && val[start - 2] === '[' && val[start + 1] === ']');
-                if (isDoubleWiki) {
-                    deleteWithUndo(input, start - 2, start + 2);
-                } else {
-                    deleteWithUndo(input, start - 1, start + 1);
-                }
+                deleteWithUndo(input, start - 1, start + 1);
                 return;
             }
         }
@@ -347,24 +412,41 @@ class InfoboxEditModal extends Modal {
             return;
         }
 
-        // Case 2: If HTML was pasted and contains an anchor tag <a href="...">text</a>
-        if (html && !hasSelection && text && !text.includes('[[') && !text.includes('](')) {
-            const match = html.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/i);
-            if (match) {
-                const href = match[1];
-                const linkText = match[2].replace(/<[^>]+>/g, '').trim() || text.trim();
-                if (href && linkText) {
-                    e.preventDefault();
-                    let mdLink;
-                    if (/^https?:\/\//i.test(href)) {
-                        mdLink = `[${linkText}](${href})`;
-                    } else {
-                        const cleanHref = href.replace(/^app:\/\/obsidian\.md\//, '').replace(/\.md$/, '');
-                        mdLink = (cleanHref === linkText) ? `[[${cleanHref}]]` : `[[${cleanHref}|${linkText}]]`;
+        // Case 2: If HTML was pasted and contains anchor tags <a href="...">...</a> -> convert all links to markdown
+        if (html && !text.includes('[[') && !text.includes('](') && /<a\s+[^>]*href=/i.test(html)) {
+            e.preventDefault();
+            let converted = text;
+
+            // Try Obsidian's native htmlToMarkdown if available
+            if (typeof obsidian !== 'undefined' && typeof obsidian.htmlToMarkdown === 'function') {
+                try {
+                    const md = obsidian.htmlToMarkdown(html);
+                    if (md && md.trim()) {
+                        converted = md.replace(/\[([^\]]+)\]\(app:\/\/obsidian\.md\/([^)]+)\)/g, (m, label, target) => {
+                            const cleanTarget = decodeURI(target).replace(/\.md$/, '');
+                            return cleanTarget === label ? `[[${cleanTarget}]]` : `[[${cleanTarget}|${label}]]`;
+                        }).trim();
                     }
-                    insertTextWithUndo(input, mdLink, start + mdLink.length, start + mdLink.length, start, end);
-                    return;
+                } catch (err) {
+                    converted = text;
                 }
+            }
+
+            // Fallback: global regex replacing all anchor tags in HTML
+            if (converted === text) {
+                converted = html.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, (match, href, innerHtml) => {
+                    const linkText = innerHtml.replace(/<[^>]+>/g, '').trim() || href;
+                    if (/^https?:\/\//i.test(href)) {
+                        return `[${linkText}](${href})`;
+                    }
+                    const cleanHref = decodeURI(href.replace(/^app:\/\/obsidian\.md\//, '').replace(/\.md$/, ''));
+                    return (cleanHref === linkText) ? `[[${cleanHref}]]` : `[[${cleanHref}|${linkText}]]`;
+                }).replace(/<[^>]+>/g, '').trim();
+            }
+
+            if (converted) {
+                insertTextWithUndo(input, converted, start + converted.length, start + converted.length, start, end);
+                return;
             }
         }
     }
@@ -509,7 +591,9 @@ class InfoboxEditModal extends Modal {
                         draggable: 'false'
                     }
                 });
-                valInput.value = val ?? '';
+                valInput.value = Array.isArray(val)
+                    ? val.map(item => this.normalizeInlineValue(item)).join('\n')
+                    : (val ?? '');
                 valInput.addEventListener('dragstart', e => e.stopPropagation());
 
                 labelInput.addEventListener('change', e => {
@@ -1135,17 +1219,27 @@ class InfoboxPlugin extends Plugin {
         if (value == null) return '';
 
         if (Array.isArray(value)) {
-            if (
-                value.length === 1 &&
-                Array.isArray(value[0]) &&
-                value[0].length === 1 &&
-                value[0][0] != null &&
-                typeof value[0][0] !== 'object'
-            ) {
-                return `[[${String(value[0][0]).trim()}]]`;
+            // Case A: Single item array [ "Target" ] or 2D array [ [ "Target" ] ] from unquoted wikilinks in YAML
+            if (value.length === 1) {
+                const inner = value[0];
+                if (Array.isArray(inner) && inner.length === 1 && inner[0] != null && typeof inner[0] !== 'object') {
+                    const text = String(inner[0]).trim();
+                    return text.startsWith('[[') && text.endsWith(']]') ? text : `[[${text}]]`;
+                }
+                if (typeof inner === 'string') {
+                    const text = inner.trim();
+                    return text.startsWith('[[') && text.endsWith(']]') ? text : `[[${text}]]`;
+                }
             }
 
-            return value.map(item => this.normalizeInlineValue(item)).join(', ');
+            // Case B: Array of items, e.g. [ ["Note 1"], ["Note 2"] ] or [ "[[Note 1]]", "[[Note 2]]" ]
+            return value.map(item => {
+                if (Array.isArray(item) && item.length === 1 && item[0] != null && typeof item[0] !== 'object') {
+                    const text = String(item[0]).trim();
+                    return text.startsWith('[[') && text.endsWith(']]') ? text : `[[${text}]]`;
+                }
+                return this.normalizeInlineValue(item);
+            }).join(', ');
         }
 
         return String(value);
@@ -1166,7 +1260,8 @@ class InfoboxPlugin extends Plugin {
     }
 
     renderInlineTextFallback(parent, text, file) {
-        const linkPattern = /!?\[\[([^\]]+)\]\]/g;
+        // Support wikilinks: [[Target|Display]] or [[Target]] and markdown links: [Display](Target)
+        const linkPattern = /!?\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)/g;
         let lastIndex = 0;
         let match;
 
@@ -1175,12 +1270,21 @@ class InfoboxPlugin extends Plugin {
                 parent.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
             }
 
-            const rawLink = match[1].trim();
-            const pipeIndex = rawLink.indexOf('|');
-            const target = (pipeIndex >= 0 ? rawLink.slice(0, pipeIndex) : rawLink).trim();
-            const display = (pipeIndex >= 0 ? rawLink.slice(pipeIndex + 1) : this.getLinkDisplayText(target)).trim();
+            let target = '';
+            let display = '';
+
+            if (match[1]) {
+                const rawLink = match[1].trim();
+                const pipeIndex = rawLink.indexOf('|');
+                target = (pipeIndex >= 0 ? rawLink.slice(0, pipeIndex) : rawLink).trim();
+                display = (pipeIndex >= 0 ? rawLink.slice(pipeIndex + 1) : this.getLinkDisplayText(target)).trim();
+            } else if (match[2] && match[3]) {
+                display = match[2].trim();
+                target = match[3].trim().replace(/^<|>$/g, '');
+            }
 
             if (target) {
+                const cleanTarget = target.includes('%') ? decodeURI(target) : target;
                 const link = parent.createEl('a', {
                     cls: 'internal-link infobox-link',
                     text: display || target,
@@ -1196,7 +1300,7 @@ class InfoboxPlugin extends Plugin {
                     const isMod = Keymap && typeof Keymap.isModEvent === 'function'
                         ? Keymap.isModEvent(event)
                         : Boolean(event && (event.ctrlKey || event.metaKey));
-                    this.app.workspace.openLinkText(target, file ? file.path : '', isMod);
+                    this.app.workspace.openLinkText(cleanTarget, file ? file.path : '', isMod);
                 });
             } else {
                 parent.appendChild(document.createTextNode(match[0]));
@@ -1260,25 +1364,7 @@ class InfoboxPlugin extends Plugin {
 
     renderFieldValue(parent, value, file, component) {
         const container = parent.createDiv({ cls: 'infobox-value' });
-        let items = [];
-
-        if (Array.isArray(value)) {
-            items = value;
-        } else if (typeof value === 'string') {
-            if (value.includes('\n')) {
-                items = value.split('\n').map(s => s.replace(/^[-*]\s+/, '').trim()).filter(Boolean);
-            } else if (value.includes('|')) {
-                const parts = splitOutsideWikilinks(value, '|');
-                items = parts.length > 1 ? parts : [value];
-            } else if (value.includes(',')) {
-                const parts = splitOutsideWikilinks(value, ',');
-                items = parts.length > 1 ? parts : [value];
-            } else {
-                items = [value];
-            }
-        } else {
-            items = [String(value ?? '')];
-        }
+        const items = extractListItems(value, val => this.normalizeInlineValue(val));
 
         if (items.length > 1) {
             const ul = container.createEl('ul', { cls: 'infobox-list' });
@@ -1340,14 +1426,15 @@ class InfoboxPlugin extends Plugin {
             const isInternal = link.classList?.contains('internal-link') ||
                 link.classList?.contains('infobox-link') ||
                 link.hasAttribute('data-href');
-            const href = link.getAttribute('data-href') || link.getAttribute('href');
+            const rawHref = link.getAttribute('data-href') || link.getAttribute('href');
 
-            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+            if (isInternal && rawHref && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(rawHref)) {
                 event.preventDefault();
                 event.stopPropagation();
                 const isMod = Keymap && typeof Keymap.isModEvent === 'function'
                     ? Keymap.isModEvent(event)
                     : Boolean(event && (event.ctrlKey || event.metaKey));
+                const href = rawHref.includes('%') ? decodeURI(rawHref) : rawHref;
                 this.app.workspace.openLinkText(href, file.path, isMod);
             }
         });
@@ -1360,11 +1447,12 @@ class InfoboxPlugin extends Plugin {
             const isInternal = link.classList?.contains('internal-link') ||
                 link.classList?.contains('infobox-link') ||
                 link.hasAttribute('data-href');
-            const href = link.getAttribute('data-href') || link.getAttribute('href');
+            const rawHref = link.getAttribute('data-href') || link.getAttribute('href');
 
-            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+            if (isInternal && rawHref && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(rawHref)) {
                 event.preventDefault();
                 event.stopPropagation();
+                const href = rawHref.includes('%') ? decodeURI(rawHref) : rawHref;
                 this.app.workspace.openLinkText(href, file.path, 'tab');
             }
         });
@@ -1376,9 +1464,10 @@ class InfoboxPlugin extends Plugin {
             const isInternal = link.classList?.contains('internal-link') ||
                 link.classList?.contains('infobox-link') ||
                 link.hasAttribute('data-href');
-            const href = link.getAttribute('data-href') || link.getAttribute('href');
+            const rawHref = link.getAttribute('data-href') || link.getAttribute('href');
 
-            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+            if (isInternal && rawHref && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(rawHref)) {
+                const href = rawHref.includes('%') ? decodeURI(rawHref) : rawHref;
                 this.app.workspace.trigger('hover-link', {
                     event,
                     source: 'infobox',
@@ -1397,12 +1486,13 @@ class InfoboxPlugin extends Plugin {
             const isInternal = link.classList?.contains('internal-link') ||
                 link.classList?.contains('infobox-link') ||
                 link.hasAttribute('data-href');
-            const href = link.getAttribute('data-href') || link.getAttribute('href');
+            const rawHref = link.getAttribute('data-href') || link.getAttribute('href');
 
-            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+            if (isInternal && rawHref && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(rawHref)) {
                 if (typeof obsidian.Menu === 'function') {
                     event.preventDefault();
                     event.stopPropagation();
+                    const href = rawHref.includes('%') ? decodeURI(rawHref) : rawHref;
                     const menu = new obsidian.Menu();
                     menu.addItem(item => {
                         item.setTitle('Open in new tab')

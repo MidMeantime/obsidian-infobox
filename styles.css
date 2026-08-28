@@ -16,21 +16,23 @@ own infobox vars. can consolidate it all later */
 /* changed to a sibling element of .view-content to help with
 live edit/reading mode compatibility */
 .infobox-panel {
-
-
     position: absolute;
     top: 48px;
     right: 36px;
     width: 280px;
     z-index: 10;
-    max-height: calc(100% - 16px);
-    overflow-y: auto;
+    /* trying to account for the status bar */
+    max-height: calc(100% - 80px);
 
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-size: 13px;
     line-height: 1.55;
     color: var(--text-normal);
     user-select: text;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 
 }
 
@@ -74,7 +76,7 @@ live edit/reading mode compatibility */
     background-color: var(--infobox-primary);
     border: 1px solid var(--infobox-border-color);
     border-radius: 10px;
-    overflow: hidden;
+    overflow-y: auto;
 }
 
 .infobox> :last-child {

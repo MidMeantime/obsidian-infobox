@@ -133,7 +133,7 @@ class TestElement {
         const traverse = node => {
             if (!node || typeof node !== 'object') return;
             let match = false;
-            if (selector === 'a' && node.tag === 'a') {
+            if (node.tag === selector) {
                 match = true;
             } else if (selector.startsWith('.') && node.classList && node.classList.contains(selector.slice(1))) {
                 match = true;
@@ -426,6 +426,129 @@ function linksOf(parent) {
         assert.strictEqual(links[0].text, 'Fontaine');
         assert(links[0].classList.contains('infobox-link'));
         assert(links[0].classList.contains('internal-link'));
-        console.log('infobox-link-rendering tests passed');
     });
 }
+
+// 6. Comma-separated list with aliased links containing pipe | (moved files with paths)
+{
+    const plugin = new InfoboxPlugin();
+    plugin.app = { workspace: { openLinkText() {} } };
+    delete require('obsidian').MarkdownRenderer; // Use fallback rendering for sync assert
+
+    const parent = new TestElement('div');
+    const val = '[[Mondstadt/Knights of Favonius|Knights of Favonius]], [[Mondstadt/Church of Favonius|Church of Favonius]], [[Liyue/Qixing|Qixing]]';
+    plugin.renderFieldValue(parent, val, { path: 'Characters/Varka.md' });
+
+    const ul = parent.querySelectorAll('.infobox-list')[0];
+    assert(ul, 'List <ul> must be created');
+    const lis = ul.querySelectorAll('li');
+    assert.strictEqual(lis.length, 3, 'Must contain all 3 list items');
+
+    const links = ul.querySelectorAll('a');
+    assert.strictEqual(links.length, 3, 'Must render all 3 links');
+    assert.strictEqual(links[0].text, 'Knights of Favonius');
+    assert.strictEqual(links[0].attr['data-href'], 'Mondstadt/Knights of Favonius');
+    assert.strictEqual(links[1].text, 'Church of Favonius');
+    assert.strictEqual(links[1].attr['data-href'], 'Mondstadt/Church of Favonius');
+    assert.strictEqual(links[2].text, 'Qixing');
+    assert.strictEqual(links[2].attr['data-href'], 'Liyue/Qixing');
+}
+
+// 7. YAML-parsed unquoted arrays of arrays [ ["Folder/Note 1|Alias 1"], ["Folder/Note 2|Alias 2"] ]
+{
+    const plugin = new InfoboxPlugin();
+    plugin.app = { workspace: { openLinkText() {} } };
+
+    const parent = new TestElement('div');
+    const yamlUnquotedArray = [
+        ['Mondstadt/Knights of Favonius|Knights of Favonius'],
+        ['Mondstadt/Church of Favonius|Church of Favonius']
+    ];
+    plugin.renderFieldValue(parent, yamlUnquotedArray, { path: 'Characters/Varka.md' });
+
+    const ul = parent.querySelectorAll('.infobox-list')[0];
+    assert(ul, 'List <ul> must be created from unquoted YAML array');
+    const lis = ul.querySelectorAll('li');
+    assert.strictEqual(lis.length, 2, 'Must contain 2 items');
+
+    const links = ul.querySelectorAll('a');
+    assert.strictEqual(links.length, 2);
+    assert.strictEqual(links[0].text, 'Knights of Favonius');
+    assert.strictEqual(links[0].attr['data-href'], 'Mondstadt/Knights of Favonius');
+    assert.strictEqual(links[1].text, 'Church of Favonius');
+    assert.strictEqual(links[1].attr['data-href'], 'Mondstadt/Church of Favonius');
+}
+
+// 8. Markdown links with spaces and commas
+{
+    const plugin = new InfoboxPlugin();
+    plugin.app = { workspace: { openLinkText() {} } };
+
+    const parent = new TestElement('div');
+    const val = '[Favonius Knight, Captain](Mondstadt/Knights%20of%20Favonius.md), [Church Sister](Mondstadt/Church%20of%20Favonius.md)';
+    plugin.renderFieldValue(parent, val, { path: 'Characters/Varka.md' });
+
+    const ul = parent.querySelectorAll('.infobox-list')[0];
+    assert(ul, 'List <ul> must be created for markdown links');
+    const lis = ul.querySelectorAll('li');
+    assert.strictEqual(lis.length, 2, 'Must contain 2 markdown link items');
+
+    const links = ul.querySelectorAll('a');
+    assert.strictEqual(links.length, 2);
+    assert.strictEqual(links[0].text, 'Favonius Knight, Captain');
+    assert.strictEqual(links[0].attr['data-href'], 'Mondstadt/Knights%20of%20Favonius.md');
+    assert.strictEqual(links[1].text, 'Church Sister');
+}
+
+// 9. Click delegation with URL-encoded paths
+{
+    const plugin = new InfoboxPlugin();
+    let opened = null;
+    plugin.app = {
+        workspace: {
+            openLinkText(target, sourcePath, isMod) {
+                opened = { target, sourcePath, isMod };
+            }
+        }
+    };
+
+    const containerEl = new TestElement('div');
+    const file = { basename: 'Varka', path: 'Characters/Varka.md' };
+    const leaf = {
+        view: {
+            getViewType: () => 'markdown',
+            containerEl,
+            file
+        }
+    };
+
+    plugin.app.metadataCache = {
+        getFileCache: () => ({
+            frontmatter: {
+                infobox: {
+                    title: 'Grand Master Varka',
+                    fields: [
+                        { 'Affiliation': '[Knights](Mondstadt/Knights%20of%20Favonius.md)' }
+                    ]
+                }
+            }
+        })
+    };
+
+    plugin.processLeaf(leaf);
+
+    const panel = containerEl.querySelectorAll('.infobox-panel')[0];
+    const link = panel.querySelectorAll('a')[0];
+    assert(link, 'Link element must exist');
+
+    panel.listeners.click({
+        target: link,
+        preventDefault() {},
+        stopPropagation() {}
+    });
+
+    assert(opened, 'openLinkText must be called');
+    assert.strictEqual(opened.target, 'Mondstadt/Knights of Favonius.md', 'Target path must be URL-decoded');
+    console.log('infobox-link-rendering tests passed');
+}
+
