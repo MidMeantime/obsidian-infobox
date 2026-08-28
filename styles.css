@@ -1,6 +1,23 @@
-/* ── Panel container ─────────────────────────────────────────── */
-/* Absolutely positioned within .view-content, pinned top-right. */
+/* changed a lot of hard coded values to vars for themes */
+/* kind of messy since i transferred some values to their
+own infobox vars. can consolidate it all later */
+
+#infobox-edit-modal,
 .infobox-panel {
+    --infobox-primary: var(--background-secondary);
+    --infobox-secondary: var(--color-base-30);
+    --infobox-tertiary: var(--color-base-00);
+    --infobox-border-color: var(--color-base-30);
+}
+
+/* ── Panel container ─────────────────────────────────────────── */
+/* Absolutely positioned and pinned top-right. */
+
+/* changed to a sibling element of .view-content to help with
+live edit/reading mode compatibility */
+.infobox-panel {
+
+
     position: absolute;
     top: 48px;
     right: 36px;
@@ -12,98 +29,75 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-size: 13px;
     line-height: 1.55;
-    color: #1a1a1a;
+    color: var(--text-normal);
+    user-select: text;
+
 }
 
-.infobox-panel.infobox-theme-dark {
-    color: #e8e8e8;
+/* Push text content left so it doesn't hide behind the panel */
+.has-infobox .markdown-preview-sizer,
+.has-infobox .cm-sizer {
+    padding-right: 300px;
 }
 
-/* Readable line length centers the sizer, so position beside it instead. */
-.infobox-panel.infobox-panel-readable {
-    top: 0;
-    right: auto;
-    left: calc(100% + 24px);
-    max-height: calc(100vh - 96px);
-}
 
 /* Ensure the parent is a positioning context */
 .has-infobox {
     position: relative;
 }
 
-/* Use the readable layout's outer gutter without changing the text width. */
-.has-infobox .markdown-preview-sizer.infobox-readable-host,
-.has-infobox .cm-sizer.infobox-readable-host {
-    position: relative;
-    overflow: visible;
+/* Thin scrollbar for the panel */
+.infobox-panel::-webkit-scrollbar {
+    width: 4px;
 }
 
-/* Thin scrollbar for the panel */
-.infobox-panel::-webkit-scrollbar { width: 4px; }
 .infobox-panel::-webkit-scrollbar-thumb {
-    background: #ddd;
+    background: var(--infobox-tertiary);
     border-radius: 2px;
 }
 
-.infobox-panel.infobox-theme-dark::-webkit-scrollbar-thumb {
-    background: #4a4a4a;
+.infobox-supertitle,
+.infobox-subtitle,
+.infobox-title {
+    border-bottom: 1px solid var(--infobox-border-color);
 }
+
 
 /* ── Card ───────────────────────────────────────────────────── */
 .infobox {
-    background: #ffffff;
-    border: 1px solid #ededed;
+    background-color: var(--infobox-primary);
+    border: 1px solid var(--infobox-border-color);
     border-radius: 10px;
     overflow: hidden;
 }
 
-.infobox.infobox-theme-dark {
-    background: #262626;
-    border-color: #3a3a3a;
+.infobox> :last-child {
+    border-bottom: none;
+}
+
+/* ── Super/Subtitle ───────────────────────────────────────────────── */
+.infobox-supertitle,
+.infobox-subtitle {
+    text-align: center;
+    padding: var(--menu-padding);
+    font-style: italic;
+    color: var(--text-faint);
+    font-size: var(--font-ui-small);
 }
 
 /* ── Title ──────────────────────────────────────────────────── */
 .infobox-title {
     text-align: center;
-    padding: 14px 16px 12px;
-    font-size: 1.1em;
-    font-weight: 700;
-    color: #111;
-    letter-spacing: -0.01em;
-    border-bottom: 1px solid #ededed;
-}
-
-.infobox.infobox-theme-dark .infobox-title {
-    color: #f2f2f2;
-    border-bottom-color: #3a3a3a;
-}
-
-/* ── Subtitle ───────────────────────────────────────────────── */
-.infobox-subtitle {
-    text-align: center;
-    padding: 6px 16px 10px;
-    font-style: italic;
-    color: #888;
-    font-size: 0.93em;
-    border-bottom: 1px solid #ededed;
-}
-
-.infobox.infobox-theme-dark .infobox-subtitle {
-    color: #b0b0b0;
-    border-bottom-color: #3a3a3a;
+    font-size: var(--font-ui-large);
+    font-weight: var(--font-bold);
 }
 
 /* ── Image ──────────────────────────────────────────────────── */
 .infobox-image {
     text-align: center;
     padding: 12px;
-    border-bottom: 1px solid #ededed;
 }
 
-.infobox.infobox-theme-dark .infobox-image {
-    border-bottom-color: #3a3a3a;
-}
 
 .infobox-image img {
     max-width: 100%;
@@ -116,17 +110,17 @@
 /* ── Caption ────────────────────────────────────────────────── */
 .infobox-caption {
     text-align: center;
-    padding: 4px 16px 10px;
-    font-size: 0.86em;
+    padding: 4px 16px;
+    font-size: var(--font-smaller);
     font-style: italic;
-    color: #aaa;
-    border-bottom: 1px solid #ededed;
+    color: var(--text-faint);
+    margin-top: -12px;
 }
 
-.infobox.infobox-theme-dark .infobox-caption {
-    color: #a0a0a0;
-    border-bottom-color: #3a3a3a;
+.infobox-caption.is-hidden {
+    display: none;
 }
+
 
 /* ── Tags ───────────────────────────────────────────────────── */
 .infobox-tags {
@@ -134,12 +128,8 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 10px 12px;
-    border-bottom: 1px solid #ededed;
 }
 
-.infobox.infobox-theme-dark .infobox-tags {
-    border-bottom-color: #3a3a3a;
-}
 
 .infobox-tag {
     display: inline-flex;
@@ -148,7 +138,7 @@
     padding: 2px 7px;
     border-radius: 999px;
     background: #f2f5f8;
-    color: #4f6f8f;
+    /* color: #4f6f8f; */
     font-size: 0.82em;
     font-weight: 600;
     line-height: 1.4;
@@ -158,18 +148,15 @@
 
 .infobox-tag:hover {
     background: #e5edf5;
-    color: #385a78;
+    /* color: #385a78; */
     text-decoration: none;
 }
 
-.infobox.infobox-theme-dark .infobox-tag {
-    background: #343f49;
-    color: #b9d4ee;
-}
 
-.infobox.infobox-theme-dark .infobox-tag:hover {
-    background: #3e4d5a;
-    color: #d6e8f8;
+.infobox-section,
+.infobox-row,
+.infobox-tags {
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 
 /* ── Section headers ────────────────────────────────────────── */
@@ -178,57 +165,46 @@
     padding: 7px 16px;
     font-size: 0.72em;
     font-weight: 600;
-    color: #999;
+    color: var(--text-muted);
     letter-spacing: 0.07em;
     text-transform: uppercase;
-    background: #fafafa;
-    border-bottom: 1px solid #ededed;
+    background: var(--color-base-30);
 }
 
-.infobox.infobox-theme-dark .infobox-section {
-    color: #b8b8b8;
-    background: #2e2e2e;
-    border-bottom-color: #3a3a3a;
+/* ── List formatting inside fields ────────────────────────── */
+ul.infobox-list {
+    margin: 0;
+    padding-left: 18px;
+    list-style-type: disc;
+    text-align: left;
+}
+
+.infobox-value ul.infobox-list {
+    margin-top: 2px;
 }
 
 /* ── Data rows ──────────────────────────────────────────────── */
-/* No vertical divider — label and value separated by space only */
 .infobox-row {
     display: flex;
     gap: 8px;
     padding: 8px 16px;
-    border-bottom: 1px solid #ededed;
 }
 
-.infobox.infobox-theme-dark .infobox-row {
-    border-bottom-color: #3a3a3a;
-}
-
-.infobox-row:last-child {
-    border-bottom: none;
-}
 
 .infobox-label {
     flex: 0 0 auto;
     font-weight: 600;
-    color: #999;
+    color: var(--text-muted);
     font-size: 0.9em;
     white-space: nowrap;
 }
 
-.infobox.infobox-theme-dark .infobox-label {
-    color: #b0b0b0;
-}
 
 .infobox-value {
     flex: 1 1 auto;
-    color: #1a1a1a;
     text-align: right;
 }
 
-.infobox.infobox-theme-dark .infobox-value {
-    color: #ededed;
-}
 
 .infobox-link {
     color: var(--link-color, #4f6f8f);
@@ -244,31 +220,27 @@
 
 .infobox-gallery {
     width: 100%;
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--infobox-border-color);
 }
 
 .infobox-image-tabs {
     display: flex;
     width: 100%;
-    border-bottom: 1px solid #ededed;
-    background: #fafafa;
 }
 
-.infobox.infobox-theme-dark .infobox-image-tabs {
-    background: #2e2e2e;
-    border-bottom-color: #3a3a3a;
-}
 
-.infobox-image-tab {
+button.infobox-image-tab {
     flex: 1;
     margin: 0;
     padding: 7px 8px;
 
     border: none;
-    border-right: 1px solid #ededed;
+    /* border-right: 1px solid #ededed; */
     border-radius: 0;
 
-    background: transparent;
-    color: #888;
+    background: var(--infobox-secondary);
+    color: var(--text-faint);
 
     font: inherit;
     font-size: 0.9em;
@@ -277,32 +249,340 @@
     cursor: pointer;
 }
 
-.infobox-image-tab:last-child {
-    border-right: none;
+
+button.infobox-image-tab:hover {
+    background: var(--infobox-primary);
+    /* color: #333; */
 }
 
-.infobox-image-tab:hover {
-    background: #f0f0f0;
-    color: #333;
+button.infobox-image-tab.is-active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    /* box-shadow: inset 0 -3px 0 var(--interactive-accent); */
 }
 
-.infobox-image-tab.is-active {
-    background: #fff;
-    color: #111;
-    box-shadow: inset 0 -3px 0 var(--interactive-accent);
+
+/* ── Edit Button ────────────────────────────────────────────── */
+/* considering changing this to a smaller button? or maybe an option
+in the config settings */
+.infobox-edit-button {
+    width: calc(100% - 32px);
+    margin: 16px;
+    padding: 6px 12px;
+    background-color: var(--interactive-normal);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    color: var(--text-normal);
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
 }
 
-.infobox.infobox-theme-dark .infobox-image-tab {
-    color: #aaa;
-    border-right-color: #3a3a3a;
+.infobox-edit-button:hover {
+    background-color: var(--interactive-hover);
 }
 
-.infobox.infobox-theme-dark .infobox-image-tab:hover {
-    background: #383838;
-    color: #eee;
+.infobox-edit-button:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
 }
 
-.infobox.infobox-theme-dark .infobox-image-tab.is-active {
-    background: #262626;
-    color: #fff;
+/* ── Infobox Edit Modal ─────────────────────────────────────── */
+.infobox-edit-modal-title {
+    margin-bottom: 16px;
+}
+
+.infobox-edit-row {
+    margin-bottom: 14px;
+    display: flex;
+    flex-direction: column;
+}
+
+.infobox-edit-label {
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+
+.infobox-edit-input-container {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.infobox-edit-input-container input[type="text"] {
+    flex: 1;
+}
+
+.infobox-edit-section {
+    margin-top: 20px;
+}
+
+.infobox-edit-section-header {
+    margin-top: 0;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 6px;
+    font-size: 1.05em;
+    font-weight: 600;
+}
+
+.infobox-edit-fields-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.infobox-edit-field-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    position: relative;
+    border-radius: 6px;
+    padding: 6px;
+
+    &:hover {
+        background-color: var(--background-primary-alt);
+    }
+
+    &.is-section {
+        border: 1px solid var(--modal-border-color);
+        background-color: var(--color-base-10);
+
+        input {
+            text-align: center;
+        }
+
+    }
+
+    &.is-label {}
+}
+
+
+.infobox-edit-field-section-input {
+    flex: 1;
+    background-color: var(--background-secondary);
+    font-weight: 600;
+}
+
+.infobox-edit-field-label-input {
+    width: 40%;
+}
+
+.infobox-edit-field-val-input {
+    flex: 1;
+    resize: vertical;
+    min-height: 2.5em;
+    padding: 4px 8px;
+    font-family: inherit;
+}
+
+.infobox-edit-remove-btn {
+    padding: 6px;
+    cursor: pointer;
+    color: var(--text-error);
+    border-radius: var(--radius-s);
+    aspect-ratio: 1 / 1;
+}
+
+.infobox-edit-remove-btn:hover {
+    background-color: var(--background-modifier-error-hover, rgba(255, 0, 0, 0.1));
+}
+
+.infobox-edit-buttons-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+/* Gallery editor in modal */
+.infobox-edit-gallery-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    margin-bottom: 8px;
+    border: 1px solid var(--infobox-border-color);
+    border-radius: var(--radius-s);
+    background-color: var(--infobox-primary);
+}
+
+.infobox-edit-gallery-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+
+    input {
+        flex: 1;
+        background-color: var(--infobox-tertiary);
+    }
+
+    input:active,
+    input:focus {
+        background-color: var(--background-modifier-form-field-hover);
+    }
+}
+
+.infobox-edit-gallery-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+/* ── Drag Handle and Reordering ─────────────────────────────── */
+.infobox-edit-drag-handle {
+    cursor: grab;
+    user-select: none;
+    color: var(--text-faint);
+    font-size: 1.2em;
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.infobox-edit-drag-handle:active {
+    cursor: grabbing;
+}
+
+.infobox-edit-drag-handle:hover {
+    color: var(--text-normal);
+}
+
+.infobox-edit-field-row.is-dragging {
+    opacity: 0.35;
+    background: var(--background-modifier-hover);
+    border: 1px dashed var(--interactive-accent);
+}
+
+.infobox-edit-field-row.is-dragover {
+    border-top: 2px solid var(--interactive-accent);
+}
+
+.infobox-edit-reorder-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.infobox-edit-move-btn {
+    padding: 1px 4px;
+    font-size: 0.65em;
+    line-height: 1;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-radius: var(--radius-s);
+}
+
+.infobox-edit-move-btn:hover:not(:disabled) {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.infobox-edit-move-btn:disabled {
+    opacity: 0.2;
+    cursor: not-allowed;
+}
+
+/* ── Tags Management in Modal ───────────────────────────────── */
+.infobox-edit-tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background-color: var(--background-primary);
+    min-height: 38px;
+    align-items: center;
+}
+
+.infobox-edit-tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background-color: var(--tag-container-background, var(--background-secondary));
+    color: var(--tag-color, var(--text-accent));
+    border-radius: 999px;
+    font-size: 0.85em;
+    font-weight: 500;
+    cursor: grab;
+    user-select: none;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.infobox-edit-tag-pill:active {
+    cursor: grabbing;
+}
+
+.infobox-edit-tag-pill.is-dragging {
+    opacity: 0.35;
+}
+
+.infobox-edit-tag-pill.is-dragover {
+    outline: 2px dashed var(--interactive-accent);
+    outline-offset: 2px;
+}
+
+.infobox-edit-tag-remove {
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 0.8em;
+    padding: 0 2px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 50%;
+    opacity: 0.7;
+    background-color: var(--interactive-normal);
+}
+
+.infobox-edit-tag-remove:hover {
+    opacity: 1;
+    color: var(--text-error);
+}
+
+.infobox-edit-tag-input-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    align-items: center;
+}
+
+.infobox-edit-tag-input-row input[type="text"] {
+    flex: 1;
+}
+
+.infobox-edit-toggle-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 6px;
+    font-size: 0.9em;
+    color: var(--text-muted);
+}
+
+.infobox-edit-toggle-row label,
+.infobox-edit-toggle-label {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    cursor: pointer;
+}
+
+.infobox-edit-empty-notice {
+    color: var(--text-faint);
+    font-size: 0.85em;
+    display: block;
+    margin-bottom: 8px;
 }

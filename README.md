@@ -1,14 +1,17 @@
 # Omni Infobox
 
-An Obsidian plugin that renders Wikipedia-style infoboxes from YAML frontmatter, including a floating panel pinned to the top-right of the reading pane.
+An Obsidian plugin that renders Wikipedia-style infoboxes from YAML frontmatter, featuring an interactive visual editor and a floating panel pinned to the top-right of the reading and editing panes.
 
 ## Features
 
 - Frontmatter-driven: no special syntax in note body required
-- Supports title, subtitle, images, captions, tags, and key-value fields
-- Named section dividers within the field list
-- Supports internal wikilinks in text properties and fields
-- Resolves local vault images (wikilink or plain filename)
+- In-note visual editor for updating fields, tags, and images without writing raw YAML
+- Supports supertitle, title, subtitle, images, captions, tags, and key-value fields
+- Single images or multi-image tabbed galleries with custom tab labels and captions
+- Drag-and-drop reordering for fields, sections, and tags
+- Smart list formatting: YAML arrays, multiline bullets, pipes (`|`), and commas (`,`) automatically render as bulleted lists
+- Supports internal wikilinks with aliases throughout titles, captions, and fields
+- Tag integration with add, remove, reorder, and toggle visibility
 - Automatic light/dark theme support
 - Works on desktop and mobile
 
@@ -26,11 +29,33 @@ Search for **Omni Infobox** in the Obsidian community plugin browser.
 
 ## Usage
 
+### Command Palette
+
+Open the Command Palette (`Ctrl/Cmd + P`) to access:
+
+- **Omni Infobox: Add/Edit Infobox** — initializes an infobox on the current note, or opens the editor if one already exists
+- **Omni Infobox: Remove Infobox** — removes the `infobox` block from frontmatter entirely (only available when the note has an infobox)
+
+### Visual editor
+
+Every rendered infobox includes an **Edit** button at the bottom of the panel. Clicking it opens a modal where you can:
+
+- Edit the supertitle, title, and subtitle
+- Add, remove, and drag-and-drop reorder tags
+- Manage images, browse vault image files, and edit tab labels and captions
+- Add section dividers and data fields with multiline text support
+- Drag-and-drop or use arrow buttons to reorder fields and sections
+
+Changes save back to the note's YAML frontmatter automatically.
+
+### YAML frontmatter
+
 Add an `infobox:` block to your note's YAML frontmatter:
 
 ```yaml
 ---
 infobox:
+  supertitle: Historical Figure
   title: Albert Einstein
   subtitle: Theoretical Physicist
   images:
@@ -41,6 +66,7 @@ infobox:
       image: "[[einstein-lecture.jpg]]"
       caption: Einstein giving a lecture
   tags: [science, physics]
+  showTags: true
   fields:
     - section: Personal
     - Born: March 14, 1879
@@ -48,7 +74,7 @@ infobox:
     - Nationality: [[Germany|German]] / [[United States|American]]
     - section: Career
     - Field: Theoretical physics
-    - Known for: General relativity, Special relativity
+    - Known for: General relativity | Special relativity | Photoelectric effect
     - Awards: Nobel Prize in Physics (1921)
 ---
 ```
@@ -57,6 +83,7 @@ infobox:
 
 | Key | Type | Description |
 |---|---|---|
+| `supertitle` | string | Optional italicized header rendered above the main title |
 | `title` | string | Bold heading at the top of the card |
 | `subtitle` | string | Italic line below the title |
 | `image` | string | A single filename or URL. Supports `[[wikilinks]]` and `![[wikilinks]]` |
@@ -80,6 +107,15 @@ fields:
   - section: Category Name   # renders as a section divider
   - Label: Value             # renders as a data row
 ```
+
+Field values containing multiple items are automatically rendered as a bulleted list:
+
+- YAML lists: `Known for: [General relativity, Special relativity]`
+- Multiline strings with `- ` bullets
+- Pipe-separated: `Known for: General relativity | Special relativity`
+- Comma-separated: `Known for: General relativity, Special relativity`
+
+Delimiters inside wikilinks (such as alias pipes or commas) are preserved and will not split the link.
 
 ### Images
 
