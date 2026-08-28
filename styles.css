@@ -40,6 +40,12 @@ live edit/reading mode compatibility */
     padding-right: 300px;
 }
 
+#infobox-edit-modal .modal-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+}
+
 
 /* Ensure the parent is a positioning context */
 .has-infobox {
@@ -294,14 +300,14 @@ in the config settings */
 }
 
 .infobox-edit-row {
-    margin-bottom: 14px;
+    margin: 0;
     display: flex;
     flex-direction: column;
 }
 
 .infobox-edit-label {
     font-weight: 600;
-    margin-bottom: 5px;
+    margin: 6px 0;
     color: var(--text-muted);
     font-size: 0.9em;
 }
@@ -317,13 +323,13 @@ in the config settings */
 }
 
 .infobox-edit-section {
-    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
 }
 
 .infobox-edit-section-header {
-    margin-top: 0;
-    margin-bottom: 10px;
-    border-bottom: 1px solid var(--background-modifier-border);
+    margin: 0;
     padding-bottom: 6px;
     font-size: 1.05em;
     font-weight: 600;
@@ -366,10 +372,12 @@ in the config settings */
     flex: 1;
     background-color: var(--background-secondary);
     font-weight: 600;
+    user-select: text;
 }
 
 .infobox-edit-field-label-input {
     width: 40%;
+    user-select: text;
 }
 
 .infobox-edit-field-val-input {
@@ -378,6 +386,33 @@ in the config settings */
     min-height: 2.5em;
     padding: 4px 8px;
     font-family: inherit;
+    user-select: text;
+}
+
+.infobox-edit-field-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.infobox-edit-duplicate-btn {
+    padding: 6px;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-radius: var(--radius-s);
+    background: transparent;
+    border: none;
+    line-height: 1;
+    font-size: 1.1em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1 / 1;
+}
+
+.infobox-edit-duplicate-btn:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
 }
 
 .infobox-edit-remove-btn {
@@ -408,6 +443,17 @@ in the config settings */
     border: 1px solid var(--infobox-border-color);
     border-radius: var(--radius-s);
     background-color: var(--infobox-primary);
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.infobox-edit-gallery-item.is-dragging {
+    opacity: 0.35;
+    background: var(--background-modifier-hover);
+    border: 1px dashed var(--interactive-accent);
+}
+
+.infobox-edit-gallery-item.is-dragover {
+    border-top: 2px solid var(--interactive-accent);
 }
 
 .infobox-edit-gallery-row {
@@ -433,6 +479,12 @@ in the config settings */
     font-size: 0.85em;
     font-weight: 600;
     color: var(--text-muted);
+}
+
+.infobox-edit-gallery-header-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 /* ── Drag Handle and Reordering ─────────────────────────────── */
@@ -466,7 +518,7 @@ in the config settings */
 }
 
 .infobox-edit-reorder-btns {
-    display: flex;
+    display: none;
     flex-direction: column;
     gap: 1px;
 }
@@ -475,6 +527,7 @@ in the config settings */
     padding: 1px 4px;
     font-size: 0.65em;
     line-height: 1;
+    aspect-ratio: 1 / 1;
     background: transparent;
     border: none;
     cursor: pointer;
@@ -545,6 +598,10 @@ in the config settings */
     border-radius: 50%;
     opacity: 0.7;
     background-color: var(--interactive-normal);
+    aspect-ratio: 1 / 1;
+    max-width: 25px;
+    max-height: 25px;
+    margin: 2px;
 }
 
 .infobox-edit-tag-remove:hover {

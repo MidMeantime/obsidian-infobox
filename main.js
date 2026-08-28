@@ -6,6 +6,8 @@ const Modal = obsidian.Modal || class Modal { };
 const FuzzySuggestModal = obsidian.FuzzySuggestModal || class FuzzySuggestModal { };
 const debounce = obsidian.debounce || ((fn, delay) => fn);
 const MarkdownRenderer = obsidian.MarkdownRenderer;
+const Menu = obsidian.Menu || class Menu { };
+const Keymap = obsidian.Keymap;
 
 /*
  * Infobox plugin — reads structured data from YAML frontmatter and renders
@@ -57,6 +59,48 @@ function splitOutsideWikilinks(str, delimiter) {
     return tokens.filter(Boolean);
 }
 
+function insertTextWithUndo(input, text, selectionAfterStart, selectionAfterEnd, replaceStart, replaceEnd) {
+    if (replaceStart !== undefined && replaceEnd !== undefined) {
+        input.setSelectionRange(replaceStart, replaceEnd);
+    }
+    let success = false;
+    if (typeof document !== 'undefined' && typeof document.execCommand === 'function') {
+        try {
+            success = document.execCommand('insertText', false, text);
+        } catch (err) {
+            success = false;
+        }
+    }
+    if (!success) {
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const before = input.value.slice(0, start);
+        const after = input.value.slice(end);
+        input.value = before + text + after;
+    }
+    if (selectionAfterStart !== undefined && selectionAfterEnd !== undefined) {
+        input.setSelectionRange(selectionAfterStart, selectionAfterEnd);
+    }
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function deleteWithUndo(input, start, end) {
+    input.setSelectionRange(start, end);
+    let success = false;
+    if (typeof document !== 'undefined' && typeof document.execCommand === 'function') {
+        try {
+            success = document.execCommand('delete');
+        } catch (err) {
+            success = false;
+        }
+    }
+    if (!success) {
+        input.value = input.value.slice(0, start) + input.value.slice(end);
+        input.setSelectionRange(start, start);
+    }
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 class InfoboxEditModal extends Modal {
     constructor(app, file, currentData) {
         super(app);
@@ -69,6 +113,9 @@ class InfoboxEditModal extends Modal {
         this.debouncedSaveTags = debounce(this.saveTags.bind(this), 300, true);
         this.draggedIndex = null;
         this.draggedTagIndex = null;
+        this.draggedImageIndex = null;
+        this.boundHandleKeyDown = this.handleKeyDown.bind(this);
+        this.boundHandlePaste = this.handlePaste.bind(this);
     }
 
     async updateYaml(key, value) {
@@ -124,6 +171,16 @@ class InfoboxEditModal extends Modal {
         this.saveFields().then(() => this.renderFieldsEditor());
     }
 
+    duplicateField(index) {
+        if (!this.currentData.fields) return;
+        if (index < 0 || index >= this.currentData.fields.length) return;
+
+        const original = this.currentData.fields[index];
+        const cloned = JSON.parse(JSON.stringify(original));
+        this.currentData.fields.splice(index + 1, 0, cloned);
+        this.saveFields().then(() => this.renderFieldsEditor());
+    }
+
     removeField(index) {
         if (!this.currentData.fields) return;
         this.currentData.fields.splice(index, 1);
@@ -140,6 +197,16 @@ class InfoboxEditModal extends Modal {
         this.saveFields().then(() => this.renderFieldsEditor());
     }
 
+    moveImage(fromIndex, toIndex, container) {
+        if (!Array.isArray(this.currentData.images)) return;
+        if (fromIndex < 0 || fromIndex >= this.currentData.images.length) return;
+        if (toIndex < 0 || toIndex >= this.currentData.images.length) return;
+
+        const [img] = this.currentData.images.splice(fromIndex, 1);
+        this.currentData.images.splice(toIndex, 0, img);
+        this.saveGallery().then(() => this.renderGalleryEditor(container));
+    }
+
     moveTag(fromIndex, toIndex, container) {
         if (!Array.isArray(this.currentData.tags)) return;
         if (fromIndex < 0 || fromIndex >= this.currentData.tags.length) return;
@@ -149,6 +216,157 @@ class InfoboxEditModal extends Modal {
         this.currentData.tags.splice(toIndex, 0, tag);
         this.debouncedSaveTags();
         this.renderTagsEditor(container);
+    }
+
+    handleKeyDown(e) {
+        const input = e.target;
+        if (!input || (input.tagName !== 'INPUT' && input.tagName !== 'TEXTAREA')) return;
+        if (input.type && input.type !== 'text' && input.tagName === 'INPUT') return;
+
+        const key = e.key;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        if (start === null || end === null) return;
+
+        const val = input.value;
+        const hasSelection = start !== end;
+        const selectedText = hasSelection ? val.slice(start, end) : '';
+
+        const pairs = {
+            '[': ']',
+            '(': ')',
+            '{': '}',
+            '"': '"',
+            "'": "'",
+            '`': '`'
+        };
+
+        const closingKeys = new Set([']', ')', '}', '"', "'", '`']);
+
+        // 1. Skip over closing character if typed immediately before it without selection
+        if (!hasSelection && closingKeys.has(key)) {
+            if (val[start] === key) {
+                e.preventDefault();
+                input.setSelectionRange(start + 1, start + 1);
+                return;
+            }
+        }
+
+        // 2. Selection wrapping
+        if (hasSelection && pairs[key]) {
+            e.preventDefault();
+            const openChar = key;
+            const closeChar = pairs[key];
+
+            // Check if already wrapped in single brackets [selection] and typing [ again -> wrap to [[selection]]
+            if (openChar === '[' && start > 0 && end < val.length && val[start - 1] === '[' && val[end] === ']') {
+                const isAlreadyDouble = start >= 2 && end + 1 < val.length && val[start - 2] === '[' && val[end + 1] === ']';
+                if (!isAlreadyDouble) {
+                    insertTextWithUndo(input, `[[${selectedText}]]`, start + 1, end + 1, start - 1, end + 1);
+                }
+                return;
+            } else if (openChar === '"' && start > 0 && end < val.length && val[start - 1] === '"' && val[end] === '"') {
+                return;
+            } else if (openChar === "'" && start > 0 && end < val.length && val[start - 1] === "'" && val[end] === "'") {
+                return;
+            } else if (openChar === '`' && start > 0 && end < val.length && val[start - 1] === '`' && val[end] === '`') {
+                return;
+            }
+
+            // Normal wrap: [selectedText], (selectedText), etc.
+            insertTextWithUndo(input, `${openChar}${selectedText}${closeChar}`, start + 1, end + 1, start, end);
+            return;
+        }
+
+        // 3. Auto-insert closing pair without selection
+        if (!hasSelection && pairs[key]) {
+            e.preventDefault();
+            const openChar = key;
+            const closeChar = pairs[key];
+
+            // If user types second '[' when cursor is inside [|]:
+            if (openChar === '[' && start > 0 && val[start - 1] === '[' && val[start] === ']') {
+                insertTextWithUndo(input, '[[]]', start + 1, start + 1, start - 1, start + 1);
+                return;
+            }
+
+            insertTextWithUndo(input, `${openChar}${closeChar}`, start + 1, start + 1, start, start);
+            return;
+        }
+
+        // 4. Backspace pair deletion
+        if (key === 'Backspace' && !hasSelection && start > 0) {
+            const prevChar = val[start - 1];
+            const nextChar = val[start];
+
+            const isMatchingPair = (
+                (prevChar === '[' && nextChar === ']') ||
+                (prevChar === '(' && nextChar === ')') ||
+                (prevChar === '{' && nextChar === '}') ||
+                (prevChar === '"' && nextChar === '"') ||
+                (prevChar === "'" && nextChar === "'") ||
+                (prevChar === '`' && nextChar === '`')
+            );
+
+            if (isMatchingPair) {
+                e.preventDefault();
+                const isDoubleWiki = (start >= 2 && val[start - 2] === '[' && val[start + 1] === ']');
+                if (isDoubleWiki) {
+                    deleteWithUndo(input, start - 2, start + 2);
+                } else {
+                    deleteWithUndo(input, start - 1, start + 1);
+                }
+                return;
+            }
+        }
+    }
+
+    handlePaste(e) {
+        const input = e.target;
+        if (!input || (input.tagName !== 'INPUT' && input.tagName !== 'TEXTAREA')) return;
+        if (input.type && input.type !== 'text' && input.tagName === 'INPUT') return;
+
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        if (start === null || end === null) return;
+
+        const clip = e.clipboardData;
+        if (!clip) return;
+
+        const text = clip.getData('text/plain');
+        const html = clip.getData('text/html');
+        const hasSelection = start !== end;
+        const selectedText = hasSelection ? input.value.slice(start, end) : '';
+
+        // Case 1: If clipboard contains a URL and user has selected text -> create markdown link [selected](url)
+        if (hasSelection && text && /^(https?:\/\/|mailto:|obsidian:\/\/)[^\s]+$/i.test(text.trim())) {
+            e.preventDefault();
+            const url = text.trim();
+            const markdownLink = `[${selectedText}](${url})`;
+            insertTextWithUndo(input, markdownLink, start + markdownLink.length, start + markdownLink.length, start, end);
+            return;
+        }
+
+        // Case 2: If HTML was pasted and contains an anchor tag <a href="...">text</a>
+        if (html && !hasSelection && text && !text.includes('[[') && !text.includes('](')) {
+            const match = html.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/i);
+            if (match) {
+                const href = match[1];
+                const linkText = match[2].replace(/<[^>]+>/g, '').trim() || text.trim();
+                if (href && linkText) {
+                    e.preventDefault();
+                    let mdLink;
+                    if (/^https?:\/\//i.test(href)) {
+                        mdLink = `[${linkText}](${href})`;
+                    } else {
+                        const cleanHref = href.replace(/^app:\/\/obsidian\.md\//, '').replace(/\.md$/, '');
+                        mdLink = (cleanHref === linkText) ? `[[${cleanHref}]]` : `[[${cleanHref}|${linkText}]]`;
+                    }
+                    insertTextWithUndo(input, mdLink, start + mdLink.length, start + mdLink.length, start, end);
+                    return;
+                }
+            }
+        }
     }
 
     renderFieldsEditor() {
@@ -165,16 +383,25 @@ class InfoboxEditModal extends Modal {
                 : 'infobox-edit-field-row is-label';
 
             const row = this.fieldsContainer.createDiv({ cls: rowCls });
-            row.setAttribute('draggable', 'true');
 
-            // Drag handle
-            row.createEl('span', {
+            // Drag handle (only the handle initiates dragging to prevent text selection from triggering drag)
+            const dragHandle = row.createEl('span', {
                 text: '⠿',
                 cls: 'infobox-edit-drag-handle',
                 attr: {
                     title: 'Drag to reorder',
                     'aria-label': 'Drag to reorder'
                 }
+            });
+
+            dragHandle.addEventListener('mousedown', () => {
+                row.setAttribute('draggable', 'true');
+            });
+            dragHandle.addEventListener('mouseup', () => {
+                if (this.draggedIndex === null) row.removeAttribute('draggable');
+            });
+            dragHandle.addEventListener('mouseleave', () => {
+                if (this.draggedIndex === null) row.removeAttribute('draggable');
             });
 
             // Reorder buttons for keyboard & accessibility
@@ -205,6 +432,10 @@ class InfoboxEditModal extends Modal {
 
             // Drag & Drop events
             row.addEventListener('dragstart', e => {
+                if (e.target.closest('input, textarea, button, select') || !row.hasAttribute('draggable')) {
+                    e.preventDefault();
+                    return false;
+                }
                 this.draggedIndex = index;
                 row.classList.add('is-dragging');
                 if (e.dataTransfer) {
@@ -215,6 +446,7 @@ class InfoboxEditModal extends Modal {
 
             row.addEventListener('dragend', () => {
                 this.draggedIndex = null;
+                row.removeAttribute('draggable');
                 row.classList.remove('is-dragging');
                 this.fieldsContainer.querySelectorAll('.is-dragover').forEach(el => el.classList.remove('is-dragover'));
             });
@@ -246,9 +478,11 @@ class InfoboxEditModal extends Modal {
                     value: val ?? '',
                     attr: {
                         placeholder: 'Section title',
-                        'aria-label': 'Section title'
+                        'aria-label': 'Section title',
+                        draggable: 'false'
                     }
                 });
+                secInput.addEventListener('dragstart', e => e.stopPropagation());
 
                 secInput.addEventListener('input', e => {
                     this.currentData.fields[index] = { section: e.target.value };
@@ -261,18 +495,22 @@ class InfoboxEditModal extends Modal {
                     value: key ?? '',
                     attr: {
                         placeholder: 'Label',
-                        'aria-label': 'Field label'
+                        'aria-label': 'Field label',
+                        draggable: 'false'
                     }
                 });
+                labelInput.addEventListener('dragstart', e => e.stopPropagation());
 
                 const valInput = row.createEl('textarea', {
                     cls: 'infobox-edit-field-val-input',
                     attr: {
                         placeholder: 'Value (supports [[links]], lists, multiline)',
-                        'aria-label': 'Field value'
+                        'aria-label': 'Field value',
+                        draggable: 'false'
                     }
                 });
                 valInput.value = val ?? '';
+                valInput.addEventListener('dragstart', e => e.stopPropagation());
 
                 labelInput.addEventListener('change', e => {
                     const newKey = e.target.value.trim() || 'Label';
@@ -286,12 +524,25 @@ class InfoboxEditModal extends Modal {
                 });
             }
 
-            const removeBtn = row.createEl('button', {
+            const actionsDiv = row.createDiv({ cls: 'infobox-edit-field-actions' });
+
+            const dupBtn = actionsDiv.createEl('button', {
+                text: '⧉',
+                cls: 'infobox-edit-duplicate-btn',
+                attr: {
+                    'aria-label': isSection ? 'Duplicate section' : 'Duplicate field',
+                    title: isSection ? 'Duplicate section' : 'Duplicate field',
+                    type: 'button'
+                }
+            });
+            dupBtn.addEventListener('click', () => this.duplicateField(index));
+
+            const removeBtn = actionsDiv.createEl('button', {
                 text: '✕',
                 cls: 'infobox-edit-remove-btn',
                 attr: {
-                    'aria-label': 'Delete field',
-                    title: 'Delete field',
+                    'aria-label': isSection ? 'Delete section' : 'Delete field',
+                    title: isSection ? 'Delete section' : 'Delete field',
                     type: 'button'
                 }
             });
@@ -314,7 +565,96 @@ class InfoboxEditModal extends Modal {
             const card = container.createDiv({ cls: 'infobox-edit-gallery-item' });
 
             const header = card.createDiv({ cls: 'infobox-edit-gallery-header' });
-            header.createEl('span', { text: images.length > 1 ? `Image ${index + 1}` : 'Image' });
+            const headerLeft = header.createDiv({ cls: 'infobox-edit-gallery-header-left' });
+
+            // Drag handle (only the handle initiates dragging to prevent text selection in inputs from dragging card)
+            const dragHandle = headerLeft.createEl('span', {
+                text: '⠿',
+                cls: 'infobox-edit-drag-handle',
+                attr: {
+                    title: 'Drag to reorder image',
+                    'aria-label': 'Drag to reorder image'
+                }
+            });
+
+            dragHandle.addEventListener('mousedown', () => {
+                card.setAttribute('draggable', 'true');
+            });
+            dragHandle.addEventListener('mouseup', () => {
+                if (this.draggedImageIndex === null) card.removeAttribute('draggable');
+            });
+            dragHandle.addEventListener('mouseleave', () => {
+                if (this.draggedImageIndex === null) card.removeAttribute('draggable');
+            });
+
+            // Drag & drop events on gallery card
+            card.addEventListener('dragstart', e => {
+                if (e.target.closest('input, textarea, button, select') || !card.hasAttribute('draggable')) {
+                    e.preventDefault();
+                    return false;
+                }
+                this.draggedImageIndex = index;
+                card.classList.add('is-dragging');
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', String(index));
+                }
+            });
+
+            card.addEventListener('dragend', () => {
+                this.draggedImageIndex = null;
+                card.removeAttribute('draggable');
+                card.classList.remove('is-dragging');
+                container.querySelectorAll('.is-dragover').forEach(el => el.classList.remove('is-dragover'));
+            });
+
+            card.addEventListener('dragover', e => {
+                e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                if (!card.classList.contains('is-dragover')) {
+                    card.classList.add('is-dragover');
+                }
+            });
+
+            card.addEventListener('dragleave', () => {
+                card.classList.remove('is-dragover');
+            });
+
+            card.addEventListener('drop', e => {
+                e.preventDefault();
+                card.classList.remove('is-dragover');
+                if (this.draggedImageIndex !== null && this.draggedImageIndex !== index) {
+                    this.moveImage(this.draggedImageIndex, index, container);
+                }
+            });
+
+            // Reorder buttons for gallery
+            const reorderBtns = headerLeft.createDiv({ cls: 'infobox-edit-reorder-btns' });
+            const moveUpBtn = reorderBtns.createEl('button', {
+                text: '▲',
+                cls: 'infobox-edit-move-btn',
+                attr: {
+                    'aria-label': 'Move image up',
+                    title: 'Move image up',
+                    type: 'button'
+                }
+            });
+            if (index === 0) moveUpBtn.disabled = true;
+            moveUpBtn.addEventListener('click', () => this.moveImage(index, index - 1, container));
+
+            const moveDownBtn = reorderBtns.createEl('button', {
+                text: '▼',
+                cls: 'infobox-edit-move-btn',
+                attr: {
+                    'aria-label': 'Move image down',
+                    title: 'Move image down',
+                    type: 'button'
+                }
+            });
+            if (index === images.length - 1) moveDownBtn.disabled = true;
+            moveDownBtn.addEventListener('click', () => this.moveImage(index, index + 1, container));
+
+            headerLeft.createEl('span', { text: images.length > 1 ? `Image ${index + 1}` : 'Image' });
 
             const removeBtn = header.createEl('button', {
                 text: '✕',
@@ -336,8 +676,9 @@ class InfoboxEditModal extends Modal {
             const labelInput = labelRow.createEl('input', {
                 type: 'text',
                 value: entry.label || '',
-                attr: { placeholder: `Image ${index + 1} (optional)`, 'aria-label': 'Tab label' }
+                attr: { placeholder: `Image ${index + 1} (optional)`, 'aria-label': 'Tab label', draggable: 'false' }
             });
+            labelInput.addEventListener('dragstart', e => e.stopPropagation());
             labelInput.addEventListener('input', e => {
                 entry.label = e.target.value;
                 this.debouncedSaveGallery();
@@ -349,8 +690,9 @@ class InfoboxEditModal extends Modal {
             const pathInput = pathRow.createEl('input', {
                 type: 'text',
                 value: entry.image || '',
-                attr: { placeholder: 'Image file or URL', 'aria-label': 'Image path' }
+                attr: { placeholder: 'Image file or URL', 'aria-label': 'Image path', draggable: 'false' }
             });
+            pathInput.addEventListener('dragstart', e => e.stopPropagation());
             pathInput.addEventListener('input', e => {
                 entry.image = e.target.value;
                 this.debouncedSaveGallery();
@@ -374,8 +716,9 @@ class InfoboxEditModal extends Modal {
             const captionInput = captionRow.createEl('input', {
                 type: 'text',
                 value: entry.caption || '',
-                attr: { placeholder: 'Image caption', 'aria-label': 'Image caption' }
+                attr: { placeholder: 'Image caption', 'aria-label': 'Image caption', draggable: 'false' }
             });
+            captionInput.addEventListener('dragstart', e => e.stopPropagation());
             captionInput.addEventListener('input', e => {
                 entry.caption = e.target.value;
                 this.debouncedSaveGallery();
@@ -526,6 +869,10 @@ class InfoboxEditModal extends Modal {
 
         modalEl.id = 'infobox-edit-modal';
 
+        // Setup auto-pairing and smart markdown paste across all modal inputs & textareas
+        modalEl.addEventListener('keydown', this.boundHandleKeyDown);
+        modalEl.addEventListener('paste', this.boundHandlePaste);
+
         // Normalize tags data if needed
         if (this.currentData.tags && !Array.isArray(this.currentData.tags)) {
             if (typeof this.currentData.tags === 'string') {
@@ -614,6 +961,10 @@ class InfoboxEditModal extends Modal {
     }
 
     onClose() {
+        if (this.modalEl) {
+            this.modalEl.removeEventListener('keydown', this.boundHandleKeyDown);
+            this.modalEl.removeEventListener('paste', this.boundHandlePaste);
+        }
         this.contentEl.empty();
     }
 }
@@ -800,6 +1151,20 @@ class InfoboxPlugin extends Plugin {
         return String(value);
     }
 
+    handleTagClick(tag, file) {
+        const cleanTag = String(tag || '').replace(/^#+/, '').trim();
+        if (!cleanTag) return;
+
+        const searchPlugin = this.app?.internalPlugins?.getPluginById?.('global-search')?.instance
+            || this.app?.internalPlugins?.plugins?.['global-search']?.instance;
+
+        if (searchPlugin && typeof searchPlugin.openGlobalSearch === 'function') {
+            searchPlugin.openGlobalSearch(`tag:#${cleanTag}`);
+        } else if (this.app?.workspace?.openLinkText) {
+            this.app.workspace.openLinkText(`#${cleanTag}`, file ? file.path : '');
+        }
+    }
+
     renderInlineTextFallback(parent, text, file) {
         const linkPattern = /!?\[\[([^\]]+)\]\]/g;
         let lastIndex = 0;
@@ -825,8 +1190,13 @@ class InfoboxPlugin extends Plugin {
                     }
                 });
                 link.addEventListener('click', event => {
-                    event.preventDefault();
-                    this.app.workspace.openLinkText(target, file.path);
+                    if (event && typeof event.preventDefault === 'function') {
+                        event.preventDefault();
+                    }
+                    const isMod = Keymap && typeof Keymap.isModEvent === 'function'
+                        ? Keymap.isModEvent(event)
+                        : Boolean(event && (event.ctrlKey || event.metaKey));
+                    this.app.workspace.openLinkText(target, file ? file.path : '', isMod);
                 });
             } else {
                 parent.appendChild(document.createTextNode(match[0]));
@@ -840,13 +1210,21 @@ class InfoboxPlugin extends Plugin {
         }
     }
 
-    renderInlineText(parent, value, file) {
+    renderInlineText(parent, value, file, component) {
         const text = this.normalizeInlineValue(value);
+        const sourcePath = file ? file.path : '';
+        const comp = component || this;
 
-        if (typeof MarkdownRenderer !== 'undefined' && MarkdownRenderer.renderMarkdown) {
+        if (typeof MarkdownRenderer !== 'undefined' && (MarkdownRenderer.render || MarkdownRenderer.renderMarkdown)) {
             const temp = createDiv();
-            MarkdownRenderer.renderMarkdown(text, temp, file.path, this).then(() => {
-                temp.querySelectorAll('a').forEach(a => a.classList.add('infobox-link'));
+            const renderPromise = typeof MarkdownRenderer.render === 'function'
+                ? MarkdownRenderer.render(this.app, text, temp, sourcePath, comp)
+                : MarkdownRenderer.renderMarkdown(text, temp, sourcePath, comp);
+
+            const handleRendered = () => {
+                temp.querySelectorAll('a').forEach(a => {
+                    a.classList.add('infobox-link');
+                });
                 if (temp.childNodes.length === 1 && temp.firstChild.nodeName === 'P') {
                     const p = temp.firstChild;
                     while (p.firstChild) {
@@ -857,24 +1235,30 @@ class InfoboxPlugin extends Plugin {
                         parent.appendChild(temp.firstChild);
                     }
                 }
-            });
+            };
+
+            if (renderPromise && typeof renderPromise.then === 'function') {
+                renderPromise.then(handleRendered);
+            } else {
+                handleRendered();
+            }
             return;
         }
 
         this.renderInlineTextFallback(parent, text, file);
     }
 
-    createTextDiv(parent, cls, value, file) {
-        return this.createTextEl(parent, 'div', cls, value, file);
+    createTextDiv(parent, cls, value, file, component) {
+        return this.createTextEl(parent, 'div', cls, value, file, component);
     }
 
-    createTextEl(parent, tag, cls, value, file) {
+    createTextEl(parent, tag, cls, value, file, component) {
         const el = parent.createEl(tag, { cls });
-        this.renderInlineText(el, value, file);
+        this.renderInlineText(el, value, file, component);
         return el;
     }
 
-    renderFieldValue(parent, value, file) {
+    renderFieldValue(parent, value, file, component) {
         const container = parent.createDiv({ cls: 'infobox-value' });
         let items = [];
 
@@ -900,10 +1284,10 @@ class InfoboxPlugin extends Plugin {
             const ul = container.createEl('ul', { cls: 'infobox-list' });
             items.forEach(item => {
                 const li = ul.createEl('li');
-                this.renderInlineText(li, item, file);
+                this.renderInlineText(li, item, file, component);
             });
         } else {
-            this.renderInlineText(container, items[0] || '', file);
+            this.renderInlineText(container, items[0] || '', file, component);
         }
     }
 
@@ -935,19 +1319,130 @@ class InfoboxPlugin extends Plugin {
         panel.addClass(themeClass);
         card.addClass(themeClass);
 
+        // ── Attach panel interactions for internal links & tags ─────
+        panel.addEventListener('click', event => {
+            if (event.defaultPrevented) return;
+            const link = event.target?.closest ? event.target.closest('a') : null;
+            if (!link) return;
+
+            // Tags
+            if (link.classList?.contains('tag') || link.classList?.contains('infobox-tag')) {
+                event.preventDefault();
+                event.stopPropagation();
+                const tag = link.getAttribute('data-tag') || (link.textContent || link.text || '').replace(/^#/, '').trim();
+                if (tag) {
+                    this.handleTagClick(tag, file);
+                }
+                return;
+            }
+
+            // In-app internal links
+            const isInternal = link.classList?.contains('internal-link') ||
+                link.classList?.contains('infobox-link') ||
+                link.hasAttribute('data-href');
+            const href = link.getAttribute('data-href') || link.getAttribute('href');
+
+            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+                event.preventDefault();
+                event.stopPropagation();
+                const isMod = Keymap && typeof Keymap.isModEvent === 'function'
+                    ? Keymap.isModEvent(event)
+                    : Boolean(event && (event.ctrlKey || event.metaKey));
+                this.app.workspace.openLinkText(href, file.path, isMod);
+            }
+        });
+
+        panel.addEventListener('auxclick', event => {
+            if (event.button !== 1 || event.defaultPrevented) return;
+            const link = event.target?.closest ? event.target.closest('a') : null;
+            if (!link) return;
+
+            const isInternal = link.classList?.contains('internal-link') ||
+                link.classList?.contains('infobox-link') ||
+                link.hasAttribute('data-href');
+            const href = link.getAttribute('data-href') || link.getAttribute('href');
+
+            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+                event.preventDefault();
+                event.stopPropagation();
+                this.app.workspace.openLinkText(href, file.path, 'tab');
+            }
+        });
+
+        panel.addEventListener('mouseover', event => {
+            const link = event.target?.closest ? event.target.closest('a') : null;
+            if (!link) return;
+
+            const isInternal = link.classList?.contains('internal-link') ||
+                link.classList?.contains('infobox-link') ||
+                link.hasAttribute('data-href');
+            const href = link.getAttribute('data-href') || link.getAttribute('href');
+
+            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+                this.app.workspace.trigger('hover-link', {
+                    event,
+                    source: 'infobox',
+                    hoverParent: view,
+                    targetEl: link,
+                    linktext: href,
+                    sourcePath: file.path
+                });
+            }
+        });
+
+        panel.addEventListener('contextmenu', event => {
+            const link = event.target?.closest ? event.target.closest('a') : null;
+            if (!link) return;
+
+            const isInternal = link.classList?.contains('internal-link') ||
+                link.classList?.contains('infobox-link') ||
+                link.hasAttribute('data-href');
+            const href = link.getAttribute('data-href') || link.getAttribute('href');
+
+            if (isInternal && href && !link.classList?.contains('external-link') && !/^(https?|mailto|obsidian):/i.test(href)) {
+                if (typeof obsidian.Menu === 'function') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const menu = new obsidian.Menu();
+                    menu.addItem(item => {
+                        item.setTitle('Open in new tab')
+                            .setIcon('file-plus')
+                            .onClick(() => {
+                                this.app.workspace.openLinkText(href, file.path, 'tab');
+                            });
+                    });
+                    menu.addItem(item => {
+                        item.setTitle('Open to the right')
+                            .setIcon('separator-vertical')
+                            .onClick(() => {
+                                this.app.workspace.openLinkText(href, file.path, 'split');
+                            });
+                    });
+                    menu.addItem(item => {
+                        item.setTitle('Open in new window')
+                            .setIcon('scan')
+                            .onClick(() => {
+                                this.app.workspace.openLinkText(href, file.path, 'window');
+                            });
+                    });
+                    menu.showAtMouseEvent(event);
+                }
+            }
+        });
+
         // Supertitle
         if (ib.supertitle) {
-            this.createTextDiv(card, 'infobox-supertitle', ib.supertitle, file);
+            this.createTextDiv(card, 'infobox-supertitle', ib.supertitle, file, view);
         }
 
         // Title
         if (ib.title) {
-            this.createTextDiv(card, 'infobox-title', ib.title, file);
+            this.createTextDiv(card, 'infobox-title', ib.title, file, view);
         }
 
         // Subtitle
         if (ib.subtitle) {
-            this.createTextDiv(card, 'infobox-subtitle', ib.subtitle, file);
+            this.createTextDiv(card, 'infobox-subtitle', ib.subtitle, file, view);
         }
 
         // Image / image gallery
@@ -1023,7 +1518,8 @@ class InfoboxPlugin extends Plugin {
                     this.renderInlineText(
                         caption,
                         entry.caption,
-                        file
+                        file,
+                        view
                     );
                 }
                 caption.classList.toggle('is-hidden', !entry.caption);
@@ -1077,7 +1573,7 @@ class InfoboxPlugin extends Plugin {
                 tagEl.setAttr('data-tag', tag);
                 tagEl.addEventListener('click', event => {
                     event.preventDefault();
-                    this.app.workspace.openLinkText(displayTag, file.path);
+                    this.handleTagClick(tag, file);
                 });
             }
         }
@@ -1091,11 +1587,11 @@ class InfoboxPlugin extends Plugin {
                 const val = item[key];
 
                 if (key.toLowerCase() === 'section') {
-                    this.createTextDiv(card, 'infobox-section', val, file);
+                    this.createTextDiv(card, 'infobox-section', val, file, view);
                 } else {
                     const row = card.createDiv({ cls: 'infobox-row' });
-                    this.createTextEl(row, 'span', 'infobox-label', key, file);
-                    this.renderFieldValue(row, val, file);
+                    this.createTextEl(row, 'span', 'infobox-label', key, file, view);
+                    this.renderFieldValue(row, val, file, view);
                 }
             }
         }
